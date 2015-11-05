@@ -26,8 +26,7 @@
 #include <linux/msm_mdp.h>
 #include <linux/jiffies.h>
 #include <linux/ktime.h>
-
-
+#include <linux/lcd_notify.h>
 #include <linux/gpio.h>
 #include <linux/interrupt.h>
 #include <mach/mmi_panel_notifier.h>
@@ -793,6 +792,8 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 		return -EINVAL;
 	}
 
+	lcd_notifier_call_chain(LCD_EVENT_ON_START);
+
 	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 				panel_data);
 	mipi  = &pdata->panel_info.mipi;
@@ -889,6 +890,8 @@ end:
 	} else
 		dropbox_count = 0;
 
+	lcd_notifier_call_chain(LCD_EVENT_ON_END);
+
 	pr_info("%s-. Pwr_mode(0x0A) = 0x%x\n", __func__, pwr_mode);
 
 	return 0;
@@ -904,6 +907,8 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 		pr_err("%s: Invalid input data\n", __func__);
 		return -EINVAL;
 	}
+
+	lcd_notifier_call_chain(LCD_EVENT_OFF_START);
 
 	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 				panel_data);
@@ -945,6 +950,8 @@ disable_regs:
 
 	if (pdata->panel_info.dynamic_cabc_enabled)
 		pdata->panel_info.cabc_mode = CABC_OFF_MODE;
+
+	lcd_notifier_call_chain(LCD_EVENT_OFF_END);
 
 	pr_info("%s-:\n", __func__);
 
