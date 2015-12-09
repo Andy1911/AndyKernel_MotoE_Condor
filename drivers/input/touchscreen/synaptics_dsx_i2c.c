@@ -45,6 +45,8 @@
 #ifdef CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE
 #include <linux/input/doubletap2wake.h>
 #endif
+extern bool ct_suspended;
+extern bool prox_covered;
 #endif
 
 #define DRIVER_NAME "synaptics_dsx_i2c"
@@ -3743,16 +3745,10 @@ static int synaptics_rmi4_suspend(struct device *dev)
 	if ((s2w_switch == 1) || (dt2w_switch > 0)) {
 #elif defined(CONFIG_TOUCHSCREEN_SWEEP2WAKE) &&	!defined(CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE)
 	if (s2w_switch == 1) {
-#elif defined(CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE) &&	!defined(CONFIG_TOUCHSCREEN_SWEEP2WAKE)
+#elif defined(CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE) && !defined(CONFIG_TOUCHSCREEN_SWEEP2WAKE)
 	if (dt2w_switch > 0) {
 #endif
-		pr_info("suspend avoided!\n");
-
-		rmi4_data->prevent_sleep = true;
-		synaptics_dsx_sensor_state(rmi4_data, STATE_PREVENT_SLEEP);
-
-		return 0;
-	}
+		if (prox_covered) {
 #endif
 
 	synaptics_dsx_sensor_state(rmi4_data, STATE_SUSPEND);
@@ -3776,9 +3772,28 @@ static int synaptics_rmi4_suspend(struct device *dev)
 
 		rmi4_data->touch_stopped = true;
 	}
+#ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
+		} else {
+
+			pr_info("suspend avoided!\n");
+
+			rmi4_data->prevent_sleep = true;
+			synaptics_dsx_sensor_state(rmi4_data, STATE_PREVENT_SLEEP);
+
+			return 0;
+		}
+	}
+#endif
 
 	return 0;
 }
+
+#ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
+void touch_suspend(void)
+{
+	synaptics_rmi4_suspend(&(exp_fn_ctrl.rmi4_data_ptr->input_dev->dev));
+}
+#endif
 
  /**
  * synaptics_rmi4_resume()
@@ -3855,6 +3870,13 @@ static int synaptics_rmi4_resume(struct device *dev)
 
 	return 0;
 }
+
+#ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
+void touch_resume(void)
+{
+	synaptics_rmi4_resume(&(exp_fn_ctrl.rmi4_data_ptr->input_dev->dev));
+}
+#endif
 
 static const struct dev_pm_ops synaptics_rmi4_dev_pm_ops = {
 	.suspend = synaptics_rmi4_suspend,
