@@ -3752,6 +3752,10 @@ suspend_touch:
 		rmi4_data->touch_stopped = true;
 	}
 
+#ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
+	pr_info("ts: suspended!\n");
+#endif
+
 	return 0;
 }
 
