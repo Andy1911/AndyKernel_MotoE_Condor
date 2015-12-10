@@ -39,9 +39,7 @@
 #include <linux/workqueue.h>
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-#ifdef CONFIG_POWERSUSPEND
-#include <linux/powersuspend.h>
-#endif
+#include <linux/lcd_notify.h>
 #endif
 
 #define CT406_I2C_RETRIES	2
@@ -227,20 +225,17 @@ static struct ct406_reg {
 #define CT406_DBG_ENABLE_DISABLE	0x00000004
 #define CT406_DBG_IOCTL			0x00000008
 #define CT406_DBG_SUSPEND_RESUME	0x00000010
-static u32 ct406_debug = 0x00000000;
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-#ifdef CONFIG_TOUCHSCREEN_SWEEP2WAKE
 #include <linux/input/sweep2wake.h>
-#endif
-#ifdef CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE
-#include <linux/input/doubletap2wake.h>
-#endif
-bool ct_suspended = false;
 bool prox_covered = false;
-bool forced = true;
+static bool forced = true;
 extern void touch_suspend(void);
 extern void touch_resume(void);
+static bool bootup = false;
+
+static struct notifier_block notif;
 #endif
+static u32 ct406_debug = 0x00000000;
 module_param_named(debug_mask, ct406_debug, uint, 0644);
 
 static int ct406_i2c_read(struct ct406_data *ct, u8 *buf, int len)
@@ -568,9 +563,10 @@ static void ct406_prox_mode_uncovered(struct ct406_data *ct)
 		piht = ct->pdata_max;
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
- 	prox_covered = false;
- 	if(ct_suspended)
+	if (s2w_switch == 1) {
+ 		prox_covered = false;
  		touch_resume();
+	}
 #endif
 
 	ct->prox_mode = CT406_PROX_MODE_UNCOVERED;
@@ -595,8 +591,8 @@ static void ct406_prox_mode_covered(struct ct406_data *ct)
 	ct406_write_prox_thresholds(ct);
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	prox_covered = true;
- 	if (ct_suspended) {
+	if (s2w_switch == 1) {
+		prox_covered = true;
  		touch_suspend();
  	}
 #endif
@@ -1498,6 +1494,12 @@ static int ct406_pm_event(struct notifier_block *this,
 	struct ct406_data *ct = container_of(this,
 		struct ct406_data, pm_notifier);
 
+#ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
+	/* prevent sensor to sleep when s2w/dt2w enabled */
+	if (s2w_switch == 1)
+		return NOTIFY_DONE;
+#endif
+
 	mutex_lock(&ct->mutex);
 
 	switch (event) {
@@ -1515,36 +1517,29 @@ static int ct406_pm_event(struct notifier_block *this,
 }
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-#ifdef CONFIG_POWERSUSPEND
-static void ct_power_suspend(struct power_suspend *handler) {
+static int lcd_notifier_callback(struct notifier_block *this,
+					unsigned long event, void *data)
+{
 	struct ct406_data *ct = ct406_misc_data;
-	
-	ct_suspended = true;
-#if defined(CONFIG_TOUCHSCREEN_SWEEP2WAKE) && defined(CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE)
-	if (!ct->prox_enabled && (s2w_switch > 0 || dt2w_switch > 0)) {
-#elif defined(CONFIG_TOUCHSCREEN_SWEEP2WAKE) &&	!defined(CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE)
-	if (!ct->prox_enabled && (s2w_switch == 1)) {
-#elif defined(CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE) && !defined(CONFIG_TOUCHSCREEN_SWEEP2WAKE)
-	if (!ct->prox_enabled && (dt2w_switch > 0)) {
-#endif
-		forced = true;
-		ct406_enable_prox(ct);
-	}
-}
 
-static void ct_power_resume(struct power_suspend *handler) {
-	ct_suspended = false;
-	if (forced) {
-		ct406_disable_prox(ct406_misc_data);
-		forced = false;
+	if (event == LCD_EVENT_ON_START) {
+		if (!bootup) { /* don't bother while boot up */
+			bootup = true;
+		} else {
+			if (forced) {
+				ct406_disable_prox(ct406_misc_data);
+				forced = false;
+			}
+		}
+	} else if (event == LCD_EVENT_OFF_START) {
+		if (!ct->prox_enabled && s2w_switch == 1) {
+			forced = true;
+			ct406_enable_prox(ct);
+		}
 	}
-}
 
-static struct power_suspend ct_power_suspend_handler = {
-	.suspend = ct_power_suspend,
-	.resume = ct_power_resume,
-};
-#endif
+	return NOTIFY_OK;
+}
 #endif
 
 #ifdef CONFIG_OF
@@ -1739,14 +1734,10 @@ static int ct406_probe(struct i2c_client *client,
 	}
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-#if defined(CONFIG_TOUCHSCREEN_SWEEP2WAKE) && defined(CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE)
-	if ((s2w_switch == 1) || (dt2w_switch > 0))
-#elif defined(CONFIG_TOUCHSCREEN_SWEEP2WAKE) &&	!defined(CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE)
-	if (s2w_switch == 1)
-#elif defined(CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE) && !defined(CONFIG_TOUCHSCREEN_SWEEP2WAKE)
-	if (dt2w_switch > 0)
-#endif
-		ct406_enable_prox(ct);
+	notif.notifier_call = lcd_notifier_callback;
+	if (lcd_register_client(&notif)) {
+		return -EINVAL;
+	}
 #endif
 
 	ct->pm_notifier.notifier_call = ct406_pm_event;
@@ -1841,11 +1832,6 @@ static struct i2c_driver ct406_i2c_driver = {
 
 static int __init ct406_init(void)
 {
-#ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-#ifdef CONFIG_POWERSUSPEND
-	register_power_suspend(&ct_power_suspend_handler);
-#endif
-#endif
 	return i2c_add_driver(&ct406_i2c_driver);
 }
 
