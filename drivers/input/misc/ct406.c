@@ -229,11 +229,13 @@ static struct ct406_reg {
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
 #include <linux/input/sweep2wake.h>
 bool prox_covered = false;
-static bool forced = true;
+
+extern int pocket_enabled;
 extern void touch_suspend(void);
 extern void touch_resume(void);
+
 static bool bootup = false;
-static int pocket_enabled = 0;
+static bool forced = true;
 
 static struct notifier_block notif;
 #endif
@@ -1607,58 +1609,12 @@ ct406_of_init(struct i2c_client *client)
 }
 #endif
 
-#ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-/*
- * SYSFS stuff
- */
-static ssize_t pocket_mode_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	size_t count = 0;
-
-	count += sprintf(buf, "%d\n", pocket_enabled);
-
-	return count;
-}
-
-static ssize_t pocket_mode_dump(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	if (buf[0] >= '0' && buf[0] <= '1' && buf[1] == '\n')
-                if (pocket_enabled != buf[0] - '0')
-		        pocket_enabled = buf[0] - '0';
-
-	return count;
-}
-
-static DEVICE_ATTR(pocket_mode, (S_IWUSR|S_IRUGO),
-	pocket_mode_show, pocket_mode_dump);
-
-struct kobject *pocket_detection_kobj;
-/*
- * end SYSFS stuff
- */
-#endif
-
 static int ct406_probe(struct i2c_client *client,
 		       const struct i2c_device_id *id)
 {
 	struct ct406_platform_data *pdata;
 	struct ct406_data *ct;
 	int error = 0;
-#ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	int rc = 0;
-
-	pocket_detection_kobj = kobject_create_and_add("pocket_detection", kernel_kobj) ;
-	if (!pocket_detection_kobj) {
-		pr_warn("%s: pocket_detection_kobj create_and_add failed\n", __func__);
-	}
-
-	rc = sysfs_create_file(pocket_detection_kobj, &dev_attr_pocket_mode.attr);
-	if (rc) {
-		pr_warn("%s: sysfs_create_file failed for pocket mode detection\n", __func__);
-	}
-#endif
 
 	if (client->dev.of_node)
 		pdata = ct406_of_init(client);
@@ -1894,9 +1850,6 @@ static int __init ct406_init(void)
 
 static void __exit ct406_exit(void)
 {
-#ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	kobject_del(pocket_detection_kobj);
-#endif
 	i2c_del_driver(&ct406_i2c_driver);
 }
 
