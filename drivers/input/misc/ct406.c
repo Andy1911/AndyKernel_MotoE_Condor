@@ -233,6 +233,7 @@ bool prox_covered = false;
 extern int pocket_enabled;
 extern void touch_suspend(void);
 extern void touch_resume(void);
+extern bool sweep2wake_in_call;
 
 static bool bootup = false;
 static bool forced = true;
@@ -1539,19 +1540,29 @@ static int lcd_notifier_callback(struct notifier_block *this,
 		if (!bootup) { /* don't bother while boot up */
 			bootup = true;
 		} else {
-			if (forced) {
+			if (forced && !sweep2wake_in_call) {
 				ct406_disable_prox(ct406_misc_data);
 				forced = false;
 			}
 		}
 	} else if (event == LCD_EVENT_OFF_START) {
 		if (!ct->prox_enabled && s2w_switch == 1) {
-			forced = true;
-			ct406_enable_prox(ct);
+			if (!sweep2wake_in_call) {
+				forced = true;
+				ct406_enable_prox(ct);
+			}
 		}
 	}
 
 	return NOTIFY_OK;
+}
+
+void force_sensor_prox_on(void)
+{
+	struct ct406_data *ct = ct406_misc_data;
+
+	if (!ct->prox_enabled)
+		ct406_enable_prox(ct);
 }
 #endif
 
