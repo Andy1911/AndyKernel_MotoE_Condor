@@ -19,6 +19,7 @@
 #include <linux/msm_audio_ion.h>
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
 #include <linux/input/sweep2wake.h>
+#include <linux/input/doubletap2wake.h>
 #endif
 
 #include <asm/mach-types.h>
@@ -4803,7 +4804,7 @@ int voc_end_voice_call(uint32_t session_id)
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
 		if (pocket_enabled == 1) {
-			if (s2w_switch == 1)
+			if (s2w_switch == 1 || dt2w_switch > 0)
 				sweep2wake_in_call = false;
 		}
 #endif
@@ -4867,7 +4868,7 @@ int voc_standby_voice_call(uint32_t session_id)
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
 	if (pocket_enabled == 1) {
-		if (s2w_switch == 1) {
+		if (s2w_switch == 1 || dt2w_switch > 0) {
 			sweep2wake_in_call = true;
 			force_sensor_prox_on();
 		}
@@ -4935,7 +4936,7 @@ int voc_resume_voice_call(uint32_t session_id)
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
 	if (pocket_enabled == 1) {
-		if (s2w_switch == 1) {
+		if (s2w_switch == 1 || dt2w_switch > 0) {
 			sweep2wake_in_call = true;
 			force_sensor_prox_on();
 		}
@@ -5050,7 +5051,7 @@ int voc_start_voice_call(uint32_t session_id)
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
 	if (pocket_enabled == 1) {
-		if (s2w_switch == 1) {
+		if (s2w_switch == 1 || dt2w_switch > 0) {
 			sweep2wake_in_call = true;
 			force_sensor_prox_on();
 		}
