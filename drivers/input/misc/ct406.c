@@ -1760,9 +1760,14 @@ static int ct406_probe(struct i2c_client *client,
 	}
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
+	if (pocket_enabled == 1) {
+		if (s2w_switch == 1 || dt2w_switch > 0)
+			ct406_enable_prox(ct);
+	}
+
 	notif.notifier_call = lcd_notifier_callback;
 	if (lcd_register_client(&notif)) {
-		return -EINVAL;
+		pr_err("%s:Register_lcd_notifier failed: %d\n", __func__, error);
 	}
 #endif
 
