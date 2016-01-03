@@ -237,7 +237,6 @@ extern void touch_suspend(void);
 extern void touch_resume(void);
 extern bool sweep2wake_in_call;
 
-static bool bootup = false;
 static bool forced = true;
 
 static struct notifier_block notif;
