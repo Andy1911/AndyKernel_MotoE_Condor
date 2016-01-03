@@ -42,7 +42,6 @@
 #include <linux/input/sweep2wake.h>
 #include <linux/input/doubletap2wake.h>
 extern bool prox_covered;
-static bool ts_suspended;
 #endif
 
 #define DRIVER_NAME "synaptics_dsx_i2c"
@@ -2137,15 +2136,10 @@ static int synaptics_rmi4_irq_enable(struct synaptics_rmi4_data *rmi4_data,
 
 	if (enable) {
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-		if (s2w_switch == 1 || dt2w_switch > 0) {
-
-			irq_set_irq_wake(rmi4_data->irq, 0);
-
-			pr_info("rmi4_data->irq wake disabled\n");
-
-			return retval;
-		}
+		if (s2w_switch == 1 || dt2w_switch > 0)
+			irq_set_irq_wake(rmi4_data->irq, 1);
 #endif
+
 		if (rmi4_data->irq_enabled)
 			return retval;
 
@@ -2173,14 +2167,10 @@ static int synaptics_rmi4_irq_enable(struct synaptics_rmi4_data *rmi4_data,
 		rmi4_data->irq_enabled = true;
 	} else {
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-		if (s2w_switch == 1 || dt2w_switch > 0) {
-			irq_set_irq_wake(rmi4_data->irq, 1);
-
-			pr_info("rmi4_data->irq wake enabled\n");
-
-			return retval;
-		}
+		if (s2w_switch == 1 || dt2w_switch > 0)
+			irq_set_irq_wake(rmi4_data->irq, 0);
 #endif
+
 		if (rmi4_data->irq_enabled) {
 			disable_irq(rmi4_data->irq);
 			free_irq(rmi4_data->irq, rmi4_data);
@@ -3714,23 +3704,16 @@ static int synaptics_rmi4_suspend(struct device *dev)
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
 	if (s2w_switch == 1 || dt2w_switch > 0) {
 		if (!prox_covered) {
-			ts_suspended = false;
-
-			pr_info("ts: suspend avoided!\n");
-
 			synaptics_dsx_sensor_state(rmi4_data, STATE_PREVENT_SLEEP);
 
 			return 0;
-		} else {
-			ts_suspended = true;
+		} else
 			goto suspend_touch;
-		}
 	} else
 		goto suspend_touch;
 
 suspend_touch:
 #endif
-
 	synaptics_dsx_sensor_state(rmi4_data, STATE_SUSPEND);
 	rmi4_data->poweron = false;
 
@@ -3752,10 +3735,6 @@ suspend_touch:
 
 		rmi4_data->touch_stopped = true;
 	}
-
-#ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	pr_info("ts: suspended!\n");
-#endif
 
 	return 0;
 }
@@ -3782,11 +3761,8 @@ static int synaptics_rmi4_resume(struct device *dev)
 	struct synaptics_rmi4_data *rmi4_data = dev_get_drvdata(dev);
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	if (s2w_switch == 1 || dt2w_switch > 0) {
-		pr_info("ts: resumed!\n");
-		if (!ts_suspended)
-			synaptics_dsx_sensor_state(rmi4_data, STATE_ACTIVE);
-	}
+	if (s2w_switch == 1 || dt2w_switch > 0)
+		synaptics_dsx_sensor_state(rmi4_data, STATE_ACTIVE);
 #endif
 
 	synaptics_dsx_resumeinfo_start(rmi4_data);

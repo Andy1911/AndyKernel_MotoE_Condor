@@ -231,13 +231,11 @@ static struct ct406_reg {
 #include <linux/input/doubletap2wake.h>
 
 bool prox_covered = false;
+static bool forced = true;
 
-extern int pocket_enabled;
 extern void touch_suspend(void);
 extern void touch_resume(void);
 extern bool sweep2wake_in_call;
-
-static bool forced = true;
 
 static struct notifier_block notif;
 #endif
@@ -569,11 +567,9 @@ static void ct406_prox_mode_uncovered(struct ct406_data *ct)
 		piht = ct->pdata_max;
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	if (pocket_enabled == 1) {
-		if (s2w_switch == 1 || dt2w_switch > 0) {
- 			prox_covered = false;
- 			touch_resume();
-		}
+	if (s2w_switch == 1 || dt2w_switch > 0) {
+		prox_covered = false;
+		touch_resume();
 	}
 #endif
 
@@ -599,12 +595,10 @@ static void ct406_prox_mode_covered(struct ct406_data *ct)
 	ct406_write_prox_thresholds(ct);
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	if (pocket_enabled == 1) {
-		if (s2w_switch == 1 || dt2w_switch > 0) {
-			prox_covered = true;
- 			touch_suspend();
- 		}
-	}
+	if (s2w_switch == 1 || dt2w_switch > 0) {
+		prox_covered = true;
+ 		touch_suspend();
+ 	}
 #endif
 
 	pr_info("%s: Prox mode covered\n", __func__);
@@ -1506,10 +1500,8 @@ static int ct406_pm_event(struct notifier_block *this,
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
 	/* prevent sensor to sleep when s2w enabled */
-	if (pocket_enabled == 1) {
-		if (s2w_switch == 1 || dt2w_switch > 0)
-			return NOTIFY_DONE;
-	}
+	if (s2w_switch == 1 || dt2w_switch > 0)
+		return NOTIFY_DONE;
 #endif
 
 	mutex_lock(&ct->mutex);
@@ -1534,13 +1526,11 @@ static int lcd_notifier_callback(struct notifier_block *this,
 {
 	struct ct406_data *ct = ct406_misc_data;
 
-	if (pocket_enabled != 1)
-		return NOTIFY_OK;
-
 	switch (event) {
 	case LCD_EVENT_ON_END:
 		if (forced && !sweep2wake_in_call) {
-			ct406_disable_prox(ct406_misc_data);
+			if (ct->prox_enabled)
+				ct406_disable_prox(ct406_misc_data);
 			forced = false;
 		}
 		break;
@@ -1549,6 +1539,8 @@ static int lcd_notifier_callback(struct notifier_block *this,
 			if (!sweep2wake_in_call) {
 				forced = true;
 				ct406_enable_prox(ct);
+ 				touch_resume();
+				prox_covered = false;
 			}
 		}
 		break;
@@ -1760,11 +1752,6 @@ static int ct406_probe(struct i2c_client *client,
 	}
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	if (pocket_enabled == 1) {
-		if (s2w_switch == 1 || dt2w_switch > 0)
-			ct406_enable_prox(ct);
-	}
-
 	notif.notifier_call = lcd_notifier_callback;
 	if (lcd_register_client(&notif)) {
 		pr_err("%s:Register_lcd_notifier failed: %d\n", __func__, error);

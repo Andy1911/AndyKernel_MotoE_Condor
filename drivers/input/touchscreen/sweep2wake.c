@@ -86,7 +86,6 @@ MODULE_LICENSE("GPLv2");
 
 /* Resources */
 int s2w_switch = 0;
-int pocket_enabled = 0;
 static int s2w_debug = 0;
 static int s2w_pwrkey_dur = 10;
 static int touch_x = 0, touch_y = 0;
@@ -421,29 +420,6 @@ static ssize_t s2w_sweep2wake_dump(struct device *dev,
 static DEVICE_ATTR(sweep2wake, (S_IWUSR|S_IRUGO),
 	s2w_sweep2wake_show, s2w_sweep2wake_dump);
 
-static ssize_t pocket_mode_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	size_t count = 0;
-
-	count += sprintf(buf, "%d\n", pocket_enabled);
-
-	return count;
-}
-
-static ssize_t pocket_mode_dump(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	if (buf[0] >= '0' && buf[0] <= '1' && buf[1] == '\n')
-                if (pocket_enabled != buf[0] - '0')
-		        pocket_enabled = buf[0] - '0';
-
-	return count;
-}
-
-static DEVICE_ATTR(pocket_mode, (S_IWUSR|S_IRUGO),
-	pocket_mode_show, pocket_mode_dump);
-
 static ssize_t s2w_debug_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -558,10 +534,6 @@ static int __init sweep2wake_init(void)
 	rc = sysfs_create_file(android_touch_kobj, &dev_attr_sweep2wake.attr);
 	if (rc) {
 		pr_warn("%s: sysfs_create_file failed for sweep2wake\n", __func__);
-	}
-	rc = sysfs_create_file(android_touch_kobj, &dev_attr_pocket_mode.attr);
-	if (rc) {
-		pr_warn("%s: sysfs_create_file failed for pocket_mode\n", __func__);
 	}
 	rc = sysfs_create_file(android_touch_kobj, &dev_attr_sweep2wake_debug.attr);
 	if (rc) {

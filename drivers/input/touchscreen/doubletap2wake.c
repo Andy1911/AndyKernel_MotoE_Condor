@@ -54,7 +54,7 @@ MODULE_LICENSE("GPLv2");
 
 /* Tuneables */
 #define DT2W_DEBUG		0
-#define DT2W_DEFAULT		0
+#define DT2W_DEFAULT		2
 
 #define DT2W_PWRKEY_DUR		60
 #define DT2W_FEATHER		200
@@ -62,9 +62,6 @@ MODULE_LICENSE("GPLv2");
 
 /* Resources */
 int dt2w_switch = DT2W_DEFAULT;
-#ifndef CONFIG_TOUCHSCREEN_SWEEP2WAKE
-int pocket_enabled = 0;
-#endif
 static cputime64_t tap_time_pre = 0;
 static int touch_x = 0, touch_y = 0, touch_nr = 0, x_pre = 0, y_pre = 0;
 static bool touch_x_called = false, touch_y_called = false, touch_cnt = true;
@@ -321,31 +318,6 @@ static ssize_t dt2w_doubletap2wake_dump(struct device *dev,
 static DEVICE_ATTR(doubletap2wake, (S_IWUSR|S_IRUGO),
 	dt2w_doubletap2wake_show, dt2w_doubletap2wake_dump);
 
-#ifndef CONFIG_TOUCHSCREEN_SWEEP2WAKE
-static ssize_t pocket_mode_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	size_t count = 0;
-
-	count += sprintf(buf, "%d\n", pocket_enabled);
-
-	return count;
-}
-
-static ssize_t pocket_mode_dump(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	if (buf[0] >= '0' && buf[0] <= '1' && buf[1] == '\n')
-                if (pocket_enabled != buf[0] - '0')
-		        pocket_enabled = buf[0] - '0';
-
-	return count;
-}
-
-static DEVICE_ATTR(pocket_mode, (S_IWUSR|S_IRUGO),
-	pocket_mode_show, pocket_mode_dump);
-#endif
-
 static ssize_t dt2w_version_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -419,12 +391,7 @@ static int __init doubletap2wake_init(void)
 	if (rc) {
 		pr_warn("%s: sysfs_create_file failed for doubletap2wake\n", __func__);
 	}
-#ifndef CONFIG_TOUCHSCREEN_SWEEP2WAKE
-	rc = sysfs_create_file(android_touch_kobj, &dev_attr_pocket_mode.attr);
-	if (rc) {
-		pr_warn("%s: sysfs_create_file failed for pocket_mode\n", __func__);
-	}
-#endif
+
 	rc = sysfs_create_file(android_touch_kobj, &dev_attr_doubletap2wake_version.attr);
 	if (rc) {
 		pr_warn("%s: sysfs_create_file failed for doubletap2wake_version\n", __func__);

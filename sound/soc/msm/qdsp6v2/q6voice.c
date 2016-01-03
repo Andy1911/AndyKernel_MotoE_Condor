@@ -103,7 +103,6 @@ static struct voice_data *voice_get_session_by_idx(int idx);
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
 extern void force_sensor_prox_on(void);
-extern int pocket_enabled;
 bool sweep2wake_in_call = false;
 #endif
 
@@ -4803,11 +4802,10 @@ int voc_end_voice_call(uint32_t session_id)
 		v->voc_state = VOC_RELEASE;
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-		if (pocket_enabled == 1) {
-			if (s2w_switch == 1 || dt2w_switch > 0)
-				sweep2wake_in_call = false;
-		}
+		if (s2w_switch == 1 || dt2w_switch > 0)
+			sweep2wake_in_call = false;
 #endif
+
 	} else {
 		pr_err("%s: Error: End voice called in state %d\n",
 			__func__, v->voc_state);
@@ -4867,11 +4865,9 @@ int voc_standby_voice_call(uint32_t session_id)
 	}
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	if (pocket_enabled == 1) {
-		if (s2w_switch == 1 || dt2w_switch > 0) {
-			sweep2wake_in_call = true;
-			force_sensor_prox_on();
-		}
+	if (s2w_switch == 1 || dt2w_switch > 0) {
+		sweep2wake_in_call = true;
+		force_sensor_prox_on();
 	}
 #endif
 
@@ -4935,11 +4931,9 @@ int voc_resume_voice_call(uint32_t session_id)
 	v->voc_state = VOC_RUN;
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	if (pocket_enabled == 1) {
-		if (s2w_switch == 1 || dt2w_switch > 0) {
-			sweep2wake_in_call = true;
-			force_sensor_prox_on();
-		}
+	if (s2w_switch == 1 || dt2w_switch > 0) {
+		sweep2wake_in_call = true;
+		force_sensor_prox_on();
 	}
 #endif
 
@@ -5050,11 +5044,9 @@ int voc_start_voice_call(uint32_t session_id)
 	}
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	if (pocket_enabled == 1) {
-		if (s2w_switch == 1 || dt2w_switch > 0) {
-			sweep2wake_in_call = true;
-			force_sensor_prox_on();
-		}
+	if (s2w_switch == 1 || dt2w_switch > 0) {
+		sweep2wake_in_call = true;
+		force_sensor_prox_on();
 	}
 #endif
 
