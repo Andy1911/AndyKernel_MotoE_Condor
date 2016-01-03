@@ -1531,29 +1531,30 @@ static int ct406_pm_event(struct notifier_block *this,
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
 static int lcd_notifier_callback(struct notifier_block *this,
-					unsigned long event, void *data)
+	unsigned long event, void *data)
 {
 	struct ct406_data *ct = ct406_misc_data;
 
 	if (pocket_enabled != 1)
 		return NOTIFY_OK;
 
-	if (event == LCD_EVENT_ON_START) {
-		if (!bootup) { /* don't bother while boot up */
-			bootup = true;
-		} else {
-			if (forced && !sweep2wake_in_call) {
-				ct406_disable_prox(ct406_misc_data);
-				forced = false;
-			}
+	switch (event) {
+	case LCD_EVENT_ON_END:
+		if (forced && !sweep2wake_in_call) {
+			ct406_disable_prox(ct406_misc_data);
+			forced = false;
 		}
-	} else if (event == LCD_EVENT_OFF_START) {
+		break;
+	case LCD_EVENT_OFF_END:
 		if (!ct->prox_enabled && (s2w_switch == 1 || dt2w_switch > 0)) {
 			if (!sweep2wake_in_call) {
 				forced = true;
 				ct406_enable_prox(ct);
 			}
 		}
+		break;
+	default:
+		break;
 	}
 
 	return NOTIFY_OK;
