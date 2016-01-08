@@ -230,12 +230,11 @@ static struct ct406_reg {
 #include <linux/input/sweep2wake.h>
 #include <linux/input/doubletap2wake.h>
 
-bool prox_covered = false;
-static bool forced = true;
+extern bool gw_prox_covered;
+extern bool sweep2wake_in_call;
 
 extern void touch_suspend(void);
 extern void touch_resume(void);
-extern bool sweep2wake_in_call;
 
 static struct notifier_block notif;
 #endif
@@ -568,7 +567,7 @@ static void ct406_prox_mode_uncovered(struct ct406_data *ct)
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
 	if (s2w_switch == 1 || dt2w_switch > 0) {
-		prox_covered = false;
+		gw_prox_covered = false;
 		touch_resume();
 	}
 #endif
@@ -596,7 +595,7 @@ static void ct406_prox_mode_covered(struct ct406_data *ct)
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
 	if (s2w_switch == 1 || dt2w_switch > 0) {
-		prox_covered = true;
+		gw_prox_covered = true;
  		touch_suspend();
  	}
 #endif
@@ -1528,19 +1527,18 @@ static int lcd_notifier_callback(struct notifier_block *this,
 
 	switch (event) {
 	case LCD_EVENT_ON_END:
-		if (forced && !sweep2wake_in_call) {
-			if (ct->prox_enabled)
+		if (s2w_switch == 1 || dt2w_switch > 0) {
+			if (!sweep2wake_in_call)
 				ct406_disable_prox(ct406_misc_data);
-			forced = false;
 		}
 		break;
 	case LCD_EVENT_OFF_END:
-		if (!ct->prox_enabled && (s2w_switch == 1 || dt2w_switch > 0)) {
+		if (s2w_switch == 1 || dt2w_switch > 0) {
 			if (!sweep2wake_in_call) {
-				forced = true;
-				ct406_enable_prox(ct);
+				if (!ct->prox_enabled)
+					ct406_enable_prox(ct);
+				gw_prox_covered = false;
  				touch_resume();
-				prox_covered = false;
 			}
 		}
 		break;

@@ -41,7 +41,7 @@
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
 #include <linux/input/sweep2wake.h>
 #include <linux/input/doubletap2wake.h>
-extern bool prox_covered;
+bool gw_prox_covered = false;
 #endif
 
 #define DRIVER_NAME "synaptics_dsx_i2c"
@@ -3703,7 +3703,7 @@ static int synaptics_rmi4_suspend(struct device *dev)
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
 	if (s2w_switch == 1 || dt2w_switch > 0) {
-		if (!prox_covered) {
+		if (!gw_prox_covered) {
 			synaptics_dsx_sensor_state(rmi4_data, STATE_PREVENT_SLEEP);
 
 			return 0;
