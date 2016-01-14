@@ -1751,7 +1751,8 @@ static int ct406_probe(struct i2c_client *client,
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
 	notif.notifier_call = lcd_notifier_callback;
-	if (lcd_register_client(&notif)) {
+	error = lcd_register_client(&notif);
+	if (error) {
 		pr_err("%s:Register_lcd_notifier failed: %d\n", __func__, error);
 	}
 #endif
@@ -1797,6 +1798,9 @@ static int ct406_remove(struct i2c_client *client)
 {
 	struct ct406_data *ct = i2c_get_clientdata(client);
 
+#ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
+	lcd_unregister_client(&notif);
+#endif
 	unregister_pm_notifier(&ct->pm_notifier);
 
 	device_remove_file(&client->dev, &dev_attr_registers);
