@@ -23,12 +23,7 @@
 #define SYNAPTICS_DSX_DRIVER_VERSION "DSX 1.1"
 
 #include <linux/version.h>
-#if defined(CONFIG_MMI_PANEL_NOTIFICATIONS)
-#include <mach/mmi_panel_notifier.h>
-#elif defined(CONFIG_FB)
-#include <linux/notifier.h>
-#include <linux/fb.h>
-#endif
+#include <linux/lcd_notify.h>
 
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 38))
 #define KERNEL_ABOVE_2_6_38
@@ -244,11 +239,7 @@ struct synaptics_rmi4_data {
 	struct regulator *regulator;
 	struct mutex rmi4_io_ctrl_mutex;
 	struct mutex state_mutex;
-#if defined(CONFIG_MMI_PANEL_NOTIFICATIONS)
-	struct mmi_notifier panel_nb;
-#elif defined(CONFIG_FB)
 	struct notifier_block panel_nb;
-#endif
 	atomic_t panel_off_flag;
 	unsigned char current_page;
 	unsigned char button_0d_enabled;
