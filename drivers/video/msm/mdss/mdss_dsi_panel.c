@@ -29,7 +29,6 @@
 #include <linux/lcd_notify.h>
 #include <linux/gpio.h>
 #include <linux/interrupt.h>
-#include <mach/mmi_panel_notifier.h>
 
 #include "mdss_dsi.h"
 #include "mdss_fb.h"
@@ -685,7 +684,8 @@ static int mdss_dsi_panel_cont_splash_on(struct mdss_panel_data *pdata)
 		pdata->panel_info.no_solid_fill)
 		mdss_dsi_sw_reset(pdata);
 
-	mmi_panel_notify(MMI_PANEL_EVENT_DISPLAY_ON, NULL);
+	lcd_notifier_call_chain(LCD_EVENT_ON_START);
+	lcd_notifier_call_chain(LCD_EVENT_ON_END);
 
 	pdata->panel_info.cont_splash_esd_rdy = true;
 
@@ -829,8 +829,6 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 	}
 
 	if (ctrl->panel_config.bare_board == true) {
-		if (!mfd->quickdraw_in_progress)
-			mmi_panel_notify(MMI_PANEL_EVENT_DISPLAY_ON, NULL);
 		pr_warn("%s: This is bare_board configuration\n", __func__);
 		goto end;
 	}
@@ -846,12 +844,6 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 
 	if (ctrl->on_cmds.cmd_cnt)
 		mdss_dsi_panel_cmds_send(ctrl, &ctrl->on_cmds);
-
-	/* Send display on notification.  This will need to be revisited once
-	   we implement command mode support the way we want, since display
-	   may not be made visible to user until a point later than this */
-	if (!mfd->quickdraw_in_progress)
-		mmi_panel_notify(MMI_PANEL_EVENT_DISPLAY_ON, NULL);
 
 	pdata->panel_info.cont_splash_esd_rdy = true;
 
@@ -917,9 +909,6 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 	pr_info("%s+: ctrl=%pK ndx=%d\n", __func__, ctrl, ctrl->ndx);
 
 	mipi  = &pdata->panel_info.mipi;
-
-	if (!mfd->quickdraw_in_progress)
-		mmi_panel_notify(MMI_PANEL_EVENT_PRE_DISPLAY_OFF, NULL);
 
 	if (ctrl->panel_config.bare_board == true)
 		goto disable_regs;
