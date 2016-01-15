@@ -801,9 +801,6 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 	mfd = pdata->mfd;
 	pr_info("%s+: ctrl=%pK ndx=%d\n", __func__, ctrl, ctrl->ndx);
 
-	if (!mfd->quickdraw_in_progress)
-		mmi_panel_notify(MMI_PANEL_EVENT_PRE_DISPLAY_ON, NULL);
-
 	if (ctrl->partial_mode_enabled
 		&& !pdata->panel_info.panel_dead) {
 		/* If we're doing partial display, we need to turn on the
@@ -933,9 +930,6 @@ disable_regs:
 		mdss_dsi_panel_reset(pdata, 0);
 		mdss_dsi_panel_regulator_on(pdata, 0);
 	}
-
-	if (!mfd->quickdraw_in_progress)
-		mmi_panel_notify(MMI_PANEL_EVENT_DISPLAY_OFF, NULL);
 
 	if (pdata->panel_info.dynamic_cabc_enabled)
 		pdata->panel_info.cabc_mode = CABC_OFF_MODE;
