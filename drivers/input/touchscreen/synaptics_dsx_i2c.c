@@ -712,6 +712,8 @@ static int synaptics_dsx_panel_cb(struct notifier_block *nb,
 
 static int synaptics_rmi4_suspend(struct device *dev);
 
+static int prox_synaptics_rmi4_suspend(struct device *dev);
+
 static int synaptics_rmi4_resume(struct device *dev);
 
 static ssize_t synaptics_rmi4_f01_reset_store(struct device *dev,
