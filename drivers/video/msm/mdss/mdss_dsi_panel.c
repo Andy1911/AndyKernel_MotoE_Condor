@@ -29,6 +29,7 @@
 #include <linux/lcd_notify.h>
 #include <linux/gpio.h>
 #include <linux/interrupt.h>
+#include <linux/display_state.h>
 
 #ifdef CONFIG_POWERSUSPEND
 #include <linux/powersuspend.h>
@@ -65,6 +66,12 @@
 
 DEFINE_LED_TRIGGER(bl_led_trigger);
 
+bool display_on = true;
+
+bool is_display_on()
+{
+	return display_on;
+}
 
 static DECLARE_COMPLETION(bl_on_delay_completion);
 static enum hrtimer_restart mdss_dsi_panel_bl_on_defer_timer_expire(
@@ -796,6 +803,8 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 		return -EINVAL;
 	}
 
+	display_on = true;
+
 	lcd_notifier_call_chain(LCD_EVENT_ON_START);
 
 #ifdef CONFIG_POWERSUSPEND
@@ -941,6 +950,8 @@ disable_regs:
 
 	if (pdata->panel_info.dynamic_cabc_enabled)
 		pdata->panel_info.cabc_mode = CABC_OFF_MODE;
+
+	display_on = false;
 
 	lcd_notifier_call_chain(LCD_EVENT_OFF_END);
 
