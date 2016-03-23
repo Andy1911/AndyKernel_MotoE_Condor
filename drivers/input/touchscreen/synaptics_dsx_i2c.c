@@ -2135,8 +2135,10 @@ static int synaptics_rmi4_irq_enable(struct synaptics_rmi4_data *rmi4_data,
 
 	if (enable) {
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-		if (s2w_switch == 1 || dt2w_switch > 0)
-			irq_set_irq_wake(rmi4_data->irq, 1);
+		if (s2w_switch == 1 || dt2w_switch > 0) {
+			if (!rmi4_data->irq_enabled)
+				irq_set_irq_wake(rmi4_data->irq, 1);
+		}
 #endif
 
 		if (rmi4_data->irq_enabled)
@@ -2166,8 +2168,10 @@ static int synaptics_rmi4_irq_enable(struct synaptics_rmi4_data *rmi4_data,
 		rmi4_data->irq_enabled = true;
 	} else {
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-		if (s2w_switch == 1 || dt2w_switch > 0)
-			irq_set_irq_wake(rmi4_data->irq, 0);
+		if (s2w_switch == 1 || dt2w_switch > 0) {
+			if (rmi4_data->irq_enabled)
+				irq_set_irq_wake(rmi4_data->irq, 0);
+		}
 #endif
 
 		if (rmi4_data->irq_enabled) {
