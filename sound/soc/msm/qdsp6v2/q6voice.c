@@ -18,7 +18,6 @@
 #include <linux/mutex.h>
 #include <linux/msm_audio_ion.h>
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-#include <linux/input/sweep2wake.h>
 #include <linux/input/doubletap2wake.h>
 #endif
 
@@ -103,7 +102,7 @@ static struct voice_data *voice_get_session_by_idx(int idx);
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
 extern void force_sensor_prox_on(void);
-bool sweep2wake_in_call = false;
+bool dt2w_in_call = false;
 #endif
 
 static void voice_itr_init(struct voice_session_itr *itr,
@@ -4802,8 +4801,8 @@ int voc_end_voice_call(uint32_t session_id)
 		v->voc_state = VOC_RELEASE;
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-		if (s2w_switch == 1 || dt2w_switch > 0)
-			sweep2wake_in_call = false;
+		if (dt2w_switch > 0)
+			dt2w_in_call = false;
 #endif
 
 	} else {
@@ -4865,8 +4864,8 @@ int voc_standby_voice_call(uint32_t session_id)
 	}
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	if (s2w_switch == 1 || dt2w_switch > 0) {
-		sweep2wake_in_call = true;
+	if (dt2w_switch > 0) {
+		dt2w_in_call = true;
 		force_sensor_prox_on();
 	}
 #endif
@@ -4931,8 +4930,8 @@ int voc_resume_voice_call(uint32_t session_id)
 	v->voc_state = VOC_RUN;
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	if (s2w_switch == 1 || dt2w_switch > 0) {
-		sweep2wake_in_call = true;
+	if (dt2w_switch > 0) {
+		dt2w_in_call = true;
 		force_sensor_prox_on();
 	}
 #endif
@@ -5044,8 +5043,8 @@ int voc_start_voice_call(uint32_t session_id)
 	}
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	if (s2w_switch == 1 || dt2w_switch > 0) {
-		sweep2wake_in_call = true;
+	if (dt2w_switch > 0) {
+		dt2w_in_call = true;
 		force_sensor_prox_on();
 	}
 #endif
