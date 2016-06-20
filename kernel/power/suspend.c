@@ -162,16 +162,18 @@ static int suspend_test(int level)
  */
 static int suspend_prepare(void)
 {
-	int error;
+	int error, nr_calls = 0;
 
 	if (!suspend_ops || !suspend_ops->enter)
 		return -EPERM;
 
 	pm_prepare_console();
 
-	error = pm_notifier_call_chain(PM_SUSPEND_PREPARE);
-	if (error)
+	error = __pm_notifier_call_chain(PM_SUSPEND_PREPARE, -1, &nr_calls);
+	if (error) {
+		nr_calls--;
 		goto Finish;
+	}
 
 	error = suspend_freeze_processes();
 	if (!error)
@@ -180,7 +182,7 @@ static int suspend_prepare(void)
 	suspend_stats.failed_freeze++;
 	dpm_save_failed_step(SUSPEND_FREEZE);
  Finish:
-	pm_notifier_call_chain(PM_POST_SUSPEND);
+	__pm_notifier_call_chain(PM_POST_SUSPEND, nr_calls, NULL);
 	pm_restore_console();
 	return error;
 }

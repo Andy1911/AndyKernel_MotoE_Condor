@@ -608,7 +608,7 @@ static void power_down(void)
  */
 int hibernate(void)
 {
-	int error;
+	int error, nr_calls = 0;
 
 	lock_system_sleep();
 	/* The snapshot device should not be opened while we're running */
@@ -618,9 +618,11 @@ int hibernate(void)
 	}
 
 	pm_prepare_console();
-	error = pm_notifier_call_chain(PM_HIBERNATION_PREPARE);
-	if (error)
+	error = __pm_notifier_call_chain(PM_HIBERNATION_PREPARE, -1, &nr_calls);
+	if (error) {
+		nr_calls--;
 		goto Exit;
+	}
 
 	/* Allocate memory management structures */
 	error = create_basic_memory_bitmaps();
@@ -669,7 +671,7 @@ int hibernate(void)
  Free_bitmaps:
 	free_basic_memory_bitmaps();
  Exit:
-	pm_notifier_call_chain(PM_POST_HIBERNATION);
+	__pm_notifier_call_chain(PM_POST_HIBERNATION, nr_calls, NULL);
 	pm_restore_console();
 	atomic_inc(&snapshot_device_available);
  Unlock:
@@ -695,7 +697,7 @@ int hibernate(void)
  */
 static int software_resume(void)
 {
-	int error;
+	int error, nr_calls = 0;
 	unsigned int flags;
 
 	/*
@@ -778,9 +780,11 @@ static int software_resume(void)
 	}
 
 	pm_prepare_console();
-	error = pm_notifier_call_chain(PM_RESTORE_PREPARE);
-	if (error)
+	error = __pm_notifier_call_chain(PM_RESTORE_PREPARE, -1, &nr_calls);
+	if (error) {
+		nr_calls--;
 		goto close_finish;
+	}
 
 	error = create_basic_memory_bitmaps();
 	if (error)
@@ -806,7 +810,7 @@ static int software_resume(void)
  Done:
 	free_basic_memory_bitmaps();
  Finish:
-	pm_notifier_call_chain(PM_POST_RESTORE);
+	__pm_notifier_call_chain(PM_POST_RESTORE, nr_calls, NULL);
 	pm_restore_console();
 	atomic_inc(&snapshot_device_available);
 	/* For success case, the suspend path will release the lock */
