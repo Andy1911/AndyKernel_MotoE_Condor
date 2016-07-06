@@ -234,6 +234,8 @@ extern void touch_suspend(void);
 extern void touch_resume(void);
 
 static struct notifier_block notif;
+
+static bool prox_status = false;
 #endif
 static u32 ct406_debug = 0x00000000;
 module_param_named(debug_mask, ct406_debug, uint, 0644);
@@ -558,8 +560,10 @@ static void ct406_prox_mode_uncovered(struct ct406_data *ct)
 	unsigned int piht = noise_floor + ct->prox_covered_offset;
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	if (dt2w_switch > 0)
+	if (dt2w_switch > 0) {
 		touch_resume();
+		prox_status = false;
+	}
 #endif
 
 	if (pilt > ct->pdata_max)
@@ -581,8 +585,10 @@ static void ct406_prox_mode_covered(struct ct406_data *ct)
 	unsigned int piht = ct->pdata_max;
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	if (dt2w_switch > 0)
+	if (dt2w_switch > 0) {
  		touch_suspend();
+		prox_status = true;
+	}
 #endif
 
 	if (pilt > ct->pdata_max)
@@ -1520,6 +1526,10 @@ static int lcd_notifier_callback(struct notifier_block *this,
 
 	switch (event) {
 	case LCD_EVENT_ON_END:
+		/* Force resume when accident prox covered & hard power key pressed */
+		if (prox_status && (dt2w_switch > 0)) {
+			touch_resume();
+		}
 		if (!dt2w_in_call && 
 			(dt2w_switch > 0)) {
 			if (ct->prox_enabled)
