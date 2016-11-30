@@ -11,7 +11,7 @@ find -name "*.ko" -exec cp {} /home/ryanandri07/android/android_kernel_motoe/cla
 sleep 2
 
 # Remove Unneeded
-/home/ryanandri07/android/linaro-cortex-a7-4.9/bin/arm-cortex_a7-linux-gnueabihf-strip --strip-unneeded /home/ryanandri07/android/android_kernel_motoe/clarity-N-condor/system/lib/modules/*.ko
+/home/ryanandri07/android/uber-4.9/bin/arm-eabi-strip --strip-unneeded /home/ryanandri07/android/android_kernel_motoe/clarity-N-condor/system/lib/modules/*.ko
 
 cd /home/ryanandri07/android/android_kernel_motoe/clarity-N-condor
 
