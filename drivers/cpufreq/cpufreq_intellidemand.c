@@ -866,20 +866,8 @@ static ssize_t store_powersave_bias(struct kobject *a, struct attribute *b,
 		if (reenable_timer) {
 			/* reinstate dbs timer */
 			for_each_online_cpu(cpu) {
-				if (lock_policy_rwsem_write(cpu) < 0)
-					continue;
 
 				dbs_info = &per_cpu(id_cpu_dbs_info, cpu);
-
-				for_each_cpu(j, &cpus_timer_done) {
-					if (!dbs_info->cur_policy) {
-						pr_err("Dbs policy is NULL\n");
-						goto skip_this_cpu;
-					}
-					if (cpumask_test_cpu(j, dbs_info->
-							cur_policy->cpus))
-						goto skip_this_cpu;
-				}
 
 				cpumask_set_cpu(cpu, &cpus_timer_done);
 				if (dbs_info->cur_policy) {
@@ -889,8 +877,6 @@ static ssize_t store_powersave_bias(struct kobject *a, struct attribute *b,
 					 * of CPUs */
 					atomic_set(&dbs_info->sync_enabled, 1);
 				}
-skip_this_cpu:
-				unlock_policy_rwsem_write(cpu);
 			}
 		}
 		intellidemand_powersave_bias_init();
@@ -898,20 +884,8 @@ skip_this_cpu:
 		/* running at maximum or minimum frequencies; cancel
 		   dbs timer as periodic load sampling is not necessary */
 		for_each_online_cpu(cpu) {
-			if (lock_policy_rwsem_write(cpu) < 0)
-				continue;
 
 			dbs_info = &per_cpu(id_cpu_dbs_info, cpu);
-
-			for_each_cpu(j, &cpus_timer_done) {
-				if (!dbs_info->cur_policy) {
-					pr_err("Dbs policy is NULL\n");
-					goto skip_this_cpu_bypass;
-				}
-				if (cpumask_test_cpu(j, dbs_info->
-							cur_policy->cpus))
-					goto skip_this_cpu_bypass;
-			}
 
 			cpumask_set_cpu(cpu, &cpus_timer_done);
 
@@ -931,8 +905,6 @@ skip_this_cpu:
 				mutex_unlock(&dbs_info->timer_mutex);
 
 			}
-skip_this_cpu_bypass:
-			unlock_policy_rwsem_write(cpu);
 		}
 	}
 
@@ -1889,14 +1861,11 @@ static void dbs_refresh_callback(struct work_struct *work)
 
 	get_online_cpus();
 
-	if (lock_policy_rwsem_write(cpu) < 0)
-		goto bail_acq_sema_failed;
-
 	this_dbs_info = &per_cpu(id_cpu_dbs_info, cpu);
 	policy = this_dbs_info->cur_policy;
 	if (!policy) {
 		/* CPU not using intellidemand governor */
-		goto bail_incorrect_governor;
+		goto bail_acq_sema_failed;
 	}
 
 	if (policy->cur < policy->max) {
@@ -1911,9 +1880,6 @@ static void dbs_refresh_callback(struct work_struct *work)
 		this_dbs_info->prev_cpu_idle = get_cpu_idle_time(cpu,
 				&this_dbs_info->prev_cpu_wall);
 	}
-
-bail_incorrect_governor:
-	unlock_policy_rwsem_write(cpu);
 
 bail_acq_sema_failed:
 	put_online_cpus();
@@ -1972,20 +1938,16 @@ static int dbs_sync_thread(void *data)
 			src_max_load = 0;
 		}
 
-		if (lock_policy_rwsem_write(cpu) < 0)
-			goto bail_acq_sema_failed;
-
 		if (!atomic_read(&this_dbs_info->sync_enabled)) {
 			atomic_set(&this_dbs_info->src_sync_cpu, -1);
 			put_online_cpus();
-			unlock_policy_rwsem_write(cpu);
 			continue;
 		}
 
 		policy = this_dbs_info->cur_policy;
 		if (!policy) {
 			/* CPU not using intellidemand governor */
-			goto bail_incorrect_governor;
+			goto bail_acq_sema_failed;
 		}
 		delay = usecs_to_jiffies(dbs_tuners_ins.sampling_rate);
 
@@ -2013,9 +1975,6 @@ static int dbs_sync_thread(void *data)
 					      &this_dbs_info->work, delay);
 			mutex_unlock(&this_dbs_info->timer_mutex);
 		}
-
-bail_incorrect_governor:
-		unlock_policy_rwsem_write(cpu);
 bail_acq_sema_failed:
 		put_online_cpus();
 		atomic_set(&this_dbs_info->src_sync_cpu, -1);
@@ -2295,14 +2254,11 @@ static int cpufreq_gov_dbs_up_task(void *data)
 
 		get_online_cpus();
 
-		if (lock_policy_rwsem_write(cpu) < 0)
-			goto bail_acq_sema_failed;
-
 		this_dbs_info = &per_cpu(id_cpu_dbs_info, cpu);
 		policy = this_dbs_info->cur_policy;
 		if (!policy) {
 			
-			goto bail_incorrect_governor;
+			goto bail_acq_sema_failed;
 		}
 
 		mutex_lock(&this_dbs_info->timer_mutex);
@@ -2316,9 +2272,6 @@ static int cpufreq_gov_dbs_up_task(void *data)
 		}
 
 		mutex_unlock(&this_dbs_info->timer_mutex);
-
-bail_incorrect_governor:
-		unlock_policy_rwsem_write(cpu);
 
 bail_acq_sema_failed:
 		put_online_cpus();
