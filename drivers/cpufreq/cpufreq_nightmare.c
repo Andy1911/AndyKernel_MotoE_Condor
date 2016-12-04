@@ -82,14 +82,14 @@ static struct nightmare_tuners {
 } nightmare_tuners_ins = {
 	.sampling_rate = 50000,
 	.inc_cpu_load_at_min_freq = 40,
-	.inc_cpu_load = 60,
-	.dec_cpu_load = 60,
+	.inc_cpu_load = 70,
+	.dec_cpu_load = 40,
 #ifdef CONFIG_MACH_LGE
 	.freq_for_responsiveness = 1728000,
 	.freq_for_responsiveness_max = 2265600,
 #else
 	.freq_for_responsiveness = 998400,
-	.freq_for_responsiveness_max = 1190400,
+	.freq_for_responsiveness_max = 1094400,
 #endif
 	.freq_step_at_min_freq = 40,
 	.freq_step = 50,
