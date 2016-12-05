@@ -711,7 +711,9 @@ static int synaptics_dsx_panel_cb(struct notifier_block *nb,
 
 static int synaptics_rmi4_suspend(struct device *dev);
 
+#ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
 static int prox_synaptics_rmi4_suspend(struct device *dev);
+#endif
 
 static int synaptics_rmi4_resume(struct device *dev);
 
