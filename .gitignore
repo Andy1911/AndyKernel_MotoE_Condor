@@ -63,8 +63,8 @@ include/config
 include/linux/version.h
 include/generated
 arch/*/include/generated
-clarity-M-condor/boot/*
-clarity-M-condor/system/*
+clarity-N-condor/boot/*
+clarity-N-condor/system/*
 
 # stgit generated dirs
 patches-*
