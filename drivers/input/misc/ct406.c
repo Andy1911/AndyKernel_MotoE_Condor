@@ -153,6 +153,9 @@ struct ct406_data {
 	struct ct406_platform_data *pdata;
 	struct miscdevice miscdevice;
 	struct notifier_block pm_notifier;
+#ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
+	struct notifier_block notif;
+#endif
 	struct mutex mutex;
 	struct wake_lock wl;
 	/* state flags */
@@ -233,9 +236,8 @@ extern bool dt2w_in_call;
 extern void touch_suspend(void);
 extern void touch_resume(void);
 
-static struct notifier_block notif;
-
 static bool prox_status = false;
+bool first_boot = true;
 #endif
 static u32 ct406_debug = 0x00000000;
 module_param_named(debug_mask, ct406_debug, uint, 0644);
@@ -560,7 +562,7 @@ static void ct406_prox_mode_uncovered(struct ct406_data *ct)
 	unsigned int piht = noise_floor + ct->prox_covered_offset;
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	if (dt2w_switch > 0) {
+	if (dt2w_switch > 0 && !first_boot) {
 		touch_resume();
 		prox_status = false;
 	}
@@ -585,7 +587,7 @@ static void ct406_prox_mode_covered(struct ct406_data *ct)
 	unsigned int piht = ct->pdata_max;
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	if (dt2w_switch > 0) {
+	if (dt2w_switch > 0 && !first_boot) {
  		touch_suspend();
 		prox_status = true;
 	}
@@ -1497,7 +1499,7 @@ static int ct406_pm_event(struct notifier_block *this,
 		struct ct406_data, pm_notifier);
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	/* prevent sensor to sleep when s2w enabled */
+	/* prevent sensor to sleep when DT2W enabled */
 	if (dt2w_switch > 0)
 		return NOTIFY_DONE;
 #endif
@@ -1523,9 +1525,17 @@ static int lcd_notifier_callback(struct notifier_block *this,
 	unsigned long event, void *data)
 {
 	struct ct406_data *ct = ct406_misc_data;
+	struct ct406_data *ctx = container_of(this,
+		struct ct406_data, notif);
+
+	mutex_lock(&ctx->mutex);
 
 	switch (event) {
 	case LCD_EVENT_ON_END:
+		if (first_boot) {
+			first_boot =false;
+			break;
+		}
 		/* Force resume when accident prox covered & hard power key pressed */
 		if (prox_status && (dt2w_switch > 0)) {
 			touch_resume();
@@ -1546,6 +1556,8 @@ static int lcd_notifier_callback(struct notifier_block *this,
 	default:
 		break;
 	}
+
+	mutex_unlock(&ctx->mutex);
 
 	return NOTIFY_OK;
 }
@@ -1751,9 +1763,9 @@ static int ct406_probe(struct i2c_client *client,
 	}
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	notif.notifier_call = lcd_notifier_callback;
-	error = lcd_register_client(&notif);
-	if (error) {
+	ct->notif.notifier_call = lcd_notifier_callback;
+	error = lcd_register_client(&ct->notif);
+	if (error < 0) {
 		pr_err("%s:Register_lcd_notifier failed: %d\n", __func__, error);
 	}
 #endif
@@ -1799,7 +1811,7 @@ static int ct406_remove(struct i2c_client *client)
 {
 	struct ct406_data *ct = i2c_get_clientdata(client);
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	lcd_unregister_client(&notif);
+	lcd_unregister_client(&ct->notif);
 #endif
 	unregister_pm_notifier(&ct->pm_notifier);
 

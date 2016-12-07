@@ -113,6 +113,9 @@ static void synaptics_dsx_resumeinfo_ignore(
 		struct synaptics_rmi4_data *rmi4_data);
 static void synaptics_dsx_resumeinfo_touch(
 		struct synaptics_rmi4_data *rmi4_data);
+#ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
+extern bool first_boot;
+#endif
 
 /* F12 packet register description */
 
@@ -3781,7 +3784,8 @@ static int synaptics_rmi4_resume(struct device *dev)
 	struct synaptics_rmi4_data *rmi4_data = dev_get_drvdata(dev);
 
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	if (dt2w_switch > 0)
+	if (!first_boot && 
+		dt2w_switch > 0)
 		synaptics_dsx_sensor_state(rmi4_data, STATE_ACTIVE);
 #endif
 
