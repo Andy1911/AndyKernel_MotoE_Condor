@@ -1,7 +1,7 @@
 ui_print("---------------------------------");
 ui_print("-        Clarity Kernel         -");
 ui_print("---------------------------------");
-ui_print("- MOTO E - CM-14.1 | AOSP 7.0.1 -");
+ui_print("-  MOTO E - CM-14.1 | AOSP 7.1  -");
 ui_print("---------------------------------");
 show_progress(0.200000, 0);
 mount("ext4", "EMMC", "/dev/block/platform/msm_sdcc.1/by-name/system", "/system");
