@@ -94,7 +94,7 @@ static int devfreq_conservative_func(struct devfreq *devfreq,
 	}
 
 	/* Apply conservativeness factor */
-	if (conservativeness) {
+	if (conservativeness != 0) {
 		upthreshold = (upthreshold * (100 + conservativeness)) / 100;
 		downthreshold =
 		    (downthreshold * (100 + conservativeness)) / 100;
