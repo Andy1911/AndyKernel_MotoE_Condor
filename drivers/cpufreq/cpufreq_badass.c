@@ -32,26 +32,25 @@
  * It helps to keep variable names smaller, simpler
  */
 
-#define DEF_FREQUENCY_DOWN_DIFFERENTIAL		(10)
-#define DEF_FREQUENCY_UP_THRESHOLD		(80)
+#define DEF_FREQUENCY_DOWN_DIFFERENTIAL		(30)
+#define DEF_FREQUENCY_UP_THRESHOLD		(95)
 #define DEF_SAMPLING_DOWN_FACTOR		(1)
 #define MAX_SAMPLING_DOWN_FACTOR		(100000)
 #define MICRO_FREQUENCY_DOWN_DIFFERENTIAL	(3)
-#define MICRO_FREQUENCY_UP_THRESHOLD		(95)
 #define MICRO_FREQUENCY_MIN_SAMPLE_RATE		(10000)
 #define MIN_FREQUENCY_UP_THRESHOLD		(11)
 #define MAX_FREQUENCY_UP_THRESHOLD		(100)
 #define MIN_FREQUENCY_DOWN_DIFFERENTIAL		(1)
+#define DEF_TWO_PHASE_FREQ			(998400)
+#define DEF_SAMPLE_RATE				(30000)
 
 /* Phase configurables */
 #define MAX_IDLE_COUNTER			160
 #define PHASE_2_PERCENT				80
-#define PHASE_3_PERCENT				90
-#define SEMI_BUSY_THRESHOLD			14
-#define SEMI_BUSY_CLR_THRESHOLD			6
-#define BUSY_THRESHOLD				130
+#define SEMI_BUSY_THRESHOLD			20
+#define SEMI_BUSY_CLR_THRESHOLD			10
 #define BUSY_CLR_THRESHOLD			100
-#define DECREASE_IDLE_COUNTER			14
+#define DECREASE_IDLE_COUNTER			10
 
 /*
  * The polling frequency of this governor depends on the capability of
@@ -65,7 +64,7 @@
  */
 #define MIN_SAMPLING_RATE_RATIO			(2)
 
-static unsigned int min_sampling_rate;
+static unsigned int min_sampling_rate = MICRO_FREQUENCY_MIN_SAMPLE_RATE;
 
 #define LATENCY_MULTIPLIER			(1000)
 #define MIN_LATENCY_MULTIPLIER			(20)
@@ -136,32 +135,20 @@ static struct bds_tuners {
 	unsigned int sampling_down_factor;
 	int          powersave_bias;
 	unsigned int io_is_busy;
-#ifdef CONFIG_CPU_FREQ_GOV_BADASS_2_PHASE
 	unsigned int two_phase_freq;
 	unsigned int semi_busy_threshold;
 	unsigned int semi_busy_clr_threshold;
-#endif
-#ifdef CONFIG_CPU_FREQ_GOV_BADASS_3_PHASE
-	unsigned int three_phase_freq;
-	unsigned int busy_threshold;
-	unsigned int busy_clr_threshold;
-#endif
 } bds_tuners_ins = {
+	.sampling_rate = DEF_SAMPLE_RATE,
 	.up_threshold = DEF_FREQUENCY_UP_THRESHOLD,
 	.sampling_down_factor = DEF_SAMPLING_DOWN_FACTOR,
 	.down_differential = DEF_FREQUENCY_DOWN_DIFFERENTIAL,
 	.ignore_nice = 0,
 	.powersave_bias = 0,
-#ifdef CONFIG_CPU_FREQ_GOV_BADASS_2_PHASE
-	.two_phase_freq = 0,
+	.two_phase_freq = DEF_TWO_PHASE_FREQ,
 	.semi_busy_threshold = SEMI_BUSY_THRESHOLD,
 	.semi_busy_clr_threshold = SEMI_BUSY_CLR_THRESHOLD,
-#endif
-#ifdef CONFIG_CPU_FREQ_GOV_BADASS_3_PHASE
-	.three_phase_freq = 0,
-	.busy_threshold = BUSY_THRESHOLD,
-	.busy_clr_threshold = BUSY_CLR_THRESHOLD,
-#endif
+	.io_is_busy = 0,
 };
 
 static inline cputime64_t get_cpu_idle_time_jiffy(unsigned int cpu,
@@ -322,16 +309,9 @@ show_one(down_differential, down_differential);
 show_one(sampling_down_factor, sampling_down_factor);
 show_one(ignore_nice_load, ignore_nice);
 
-#ifdef CONFIG_CPU_FREQ_GOV_BADASS_2_PHASE
 show_one(two_phase_freq, two_phase_freq);
 show_one(semi_busy_threshold, semi_busy_threshold);
 show_one(semi_busy_clr_threshold, semi_busy_clr_threshold);
-#endif
-#ifdef CONFIG_CPU_FREQ_GOV_BADASS_3_PHASE
-show_one(three_phase_freq, three_phase_freq);
-show_one(busy_threshold, busy_threshold);
-show_one(busy_clr_threshold, busy_clr_threshold);
-#endif
 
 static ssize_t show_powersave_bias
 (struct kobject *kobj, struct attribute *attr, char *buf)
@@ -347,11 +327,12 @@ static ssize_t store_sampling_rate(struct kobject *a, struct attribute *b,
 	ret = sscanf(buf, "%u", &input);
 	if (ret != 1)
 		return -EINVAL;
+
 	bds_tuners_ins.sampling_rate = max(input, min_sampling_rate);
+
 	return count;
 }
 
-#ifdef CONFIG_CPU_FREQ_GOV_BADASS_2_PHASE
 static ssize_t store_two_phase_freq(struct kobject *a, struct attribute *b,
 				   const char *buf, size_t count)
 {
@@ -365,22 +346,6 @@ static ssize_t store_two_phase_freq(struct kobject *a, struct attribute *b,
 
 	return count;
 }
-#endif
-#ifdef CONFIG_CPU_FREQ_GOV_BADASS_3_PHASE
-static ssize_t store_three_phase_freq(struct kobject *a, struct attribute *b,
-				   const char *buf, size_t count)
-{
-	unsigned int input;
-	int ret;
-	ret = sscanf(buf, "%u", &input);
-	if (ret != 1)
-		return -EINVAL;
-
-	bds_tuners_ins.three_phase_freq = input;
-
-	return count;
-}
-#endif
 
 static ssize_t store_io_is_busy(struct kobject *a, struct attribute *b,
 				   const char *buf, size_t count)
@@ -391,7 +356,9 @@ static ssize_t store_io_is_busy(struct kobject *a, struct attribute *b,
 	ret = sscanf(buf, "%u", &input);
 	if (ret != 1)
 		return -EINVAL;
+
 	bds_tuners_ins.io_is_busy = !!input;
+
 	return count;
 }
 
@@ -402,11 +369,11 @@ static ssize_t store_up_threshold(struct kobject *a, struct attribute *b,
 	int ret;
 	ret = sscanf(buf, "%u", &input);
 
-	if (ret != 1 || input > MAX_FREQUENCY_UP_THRESHOLD ||
-			input < MIN_FREQUENCY_UP_THRESHOLD) {
+	if (ret != 1)
 		return -EINVAL;
-	}
+
 	bds_tuners_ins.up_threshold = input;
+
 	return count;
 }
 
@@ -417,10 +384,8 @@ static ssize_t store_down_differential(struct kobject *a, struct attribute *b,
 	int ret;
 	ret = sscanf(buf, "%u", &input);
 
-	if (ret != 1 || input >= bds_tuners_ins.up_threshold ||
-			input < MIN_FREQUENCY_DOWN_DIFFERENTIAL) {
+	if (ret != 1)
 		return -EINVAL;
-	}
 
 	bds_tuners_ins.down_differential = input;
 
@@ -436,6 +401,7 @@ static ssize_t store_sampling_down_factor(struct kobject *a,
 
 	if (ret != 1 || input > MAX_SAMPLING_DOWN_FACTOR || input < 1)
 		return -EINVAL;
+
 	bds_tuners_ins.sampling_down_factor = input;
 
 	/* Reset down sampling multiplier in case it was active */
@@ -444,6 +410,7 @@ static ssize_t store_sampling_down_factor(struct kobject *a,
 		bds_info = &per_cpu(od_cpu_bds_info, j);
 		bds_info->rate_mult = 1;
 	}
+
 	return count;
 }
 
@@ -462,9 +429,9 @@ static ssize_t store_ignore_nice_load(struct kobject *a, struct attribute *b,
 	if (input > 1)
 		input = 1;
 
-	if (input == bds_tuners_ins.ignore_nice) { /* nothing to do */
+	if (input == bds_tuners_ins.ignore_nice)
 		return count;
-	}
+
 	bds_tuners_ins.ignore_nice = input;
 
 	/* we need to re-evaluate prev_cpu_idle */
@@ -477,6 +444,7 @@ static ssize_t store_ignore_nice_load(struct kobject *a, struct attribute *b,
 			bds_info->prev_cpu_nice = kcpustat_cpu(j).cpustat[CPUTIME_NICE];
 
 	}
+
 	return count;
 }
 
@@ -589,7 +557,7 @@ skip_this_cpu_bypass:
 	return count;
 }
 
-#ifdef CONFIG_CPU_FREQ_GOV_BADASS_2_PHASE
+
 static ssize_t store_semi_busy_threshold(struct kobject *a, struct attribute *b,
 				  const char *buf, size_t count)
 {
@@ -597,11 +565,11 @@ static ssize_t store_semi_busy_threshold(struct kobject *a, struct attribute *b,
 	int ret;
 	ret = sscanf(buf, "%u", &input);
 
-	if (ret != 1 || input > bds_tuners_ins.busy_threshold ||
-			input <= 0 || input > bds_tuners_ins.busy_clr_threshold) {
+	if (ret != 1 || input > 100)
 		return -EINVAL;
-	}
+
 	bds_tuners_ins.semi_busy_threshold = input;
+
 	return count;
 }
 static ssize_t store_semi_busy_clr_threshold(struct kobject *a, struct attribute *b,
@@ -611,45 +579,13 @@ static ssize_t store_semi_busy_clr_threshold(struct kobject *a, struct attribute
 	int ret;
 	ret = sscanf(buf, "%u", &input);
 
-	if (ret != 1 || input > bds_tuners_ins.busy_clr_threshold ||
-			input < 0 || input > bds_tuners_ins.semi_busy_threshold) {
+	if (ret != 1 || input > 100)
 		return -EINVAL;
-	}
+
 	bds_tuners_ins.semi_busy_clr_threshold = input;
-	return count;
-}
-#endif
-#ifdef CONFIG_CPU_FREQ_GOV_BADASS_3_PHASE
-static ssize_t store_busy_threshold(struct kobject *a, struct attribute *b,
-				  const char *buf, size_t count)
-{
-	unsigned int input;
-	int ret;
-	ret = sscanf(buf, "%u", &input);
 
-	if (ret != 1 || input > MAX_IDLE_COUNTER ||
-			input <= 0 || input < bds_tuners_ins.semi_busy_threshold ||
-			input < bds_tuners_ins.busy_clr_threshold) {
-		return -EINVAL;
-	}
-	bds_tuners_ins.busy_threshold = input;
 	return count;
 }
-static ssize_t store_busy_clr_threshold(struct kobject *a, struct attribute *b,
-				  const char *buf, size_t count)
-{
-	unsigned int input;
-	int ret;
-	ret = sscanf(buf, "%u", &input);
-
-	if (ret != 1 || input > bds_tuners_ins.busy_threshold ||
-			input <= 0 || input < bds_tuners_ins.semi_busy_clr_threshold) {
-		return -EINVAL;
-	}
-	bds_tuners_ins.busy_clr_threshold = input;
-	return count;
-}
-#endif
 
 define_one_global_rw(sampling_rate);
 define_one_global_rw(io_is_busy);
@@ -658,16 +594,10 @@ define_one_global_rw(down_differential);
 define_one_global_rw(sampling_down_factor);
 define_one_global_rw(ignore_nice_load);
 define_one_global_rw(powersave_bias);
-#ifdef CONFIG_CPU_FREQ_GOV_BADASS_2_PHASE
+
 define_one_global_rw(two_phase_freq);
 define_one_global_rw(semi_busy_threshold);
 define_one_global_rw(semi_busy_clr_threshold);
-#endif
-#ifdef CONFIG_CPU_FREQ_GOV_BADASS_3_PHASE
-define_one_global_rw(three_phase_freq);
-define_one_global_rw(busy_threshold);
-define_one_global_rw(busy_clr_threshold);
-#endif
 
 static struct attribute *bds_attributes[] = {
 	&sampling_rate_min.attr,
@@ -678,16 +608,9 @@ static struct attribute *bds_attributes[] = {
 	&ignore_nice_load.attr,
 	&powersave_bias.attr,
 	&io_is_busy.attr,
-#ifdef CONFIG_CPU_FREQ_GOV_BADASS_2_PHASE
 	&two_phase_freq.attr,
 	&semi_busy_threshold.attr,
 	&semi_busy_clr_threshold.attr,
-#endif
-#ifdef CONFIG_CPU_FREQ_GOV_BADASS_3_PHASE
-	&three_phase_freq.attr,
-	&busy_threshold.attr,
-	&busy_clr_threshold.attr,
-#endif
 	NULL
 };
 
@@ -709,21 +632,11 @@ static void bds_freq_increase(struct cpufreq_policy *p, unsigned int freq)
 			CPUFREQ_RELATION_L : CPUFREQ_RELATION_H);
 }
 
-#ifdef CONFIG_CPU_FREQ_GOV_BADASS_2_PHASE
 int set_two_phase_freq_badass(int cpufreq)
 {
 	bds_tuners_ins.two_phase_freq = cpufreq;
 	return 0;
 }
-#endif
-
-#ifdef CONFIG_CPU_FREQ_GOV_BADASS_3_PHASE
-int set_three_phase_freq_badass(int cpufreq)
-{
-	bds_tuners_ins.three_phase_freq = cpufreq;
-	return 0;
-}
-#endif
 
 static void bds_check_cpu(struct cpu_bds_info_s *this_bds_info)
 {
@@ -731,11 +644,9 @@ static void bds_check_cpu(struct cpu_bds_info_s *this_bds_info)
 
 	struct cpufreq_policy *policy;
 	unsigned int j;
-#ifdef CONFIG_CPU_FREQ_GOV_BADASS_2_PHASE
 	static unsigned int phase = 0;
 	static unsigned int counter = 0;
 	unsigned int new_phase_max = 0;
-#endif
 
 	this_bds_info->freq_lo = 0;
 	policy = this_bds_info->cur_policy;
@@ -799,7 +710,7 @@ static void bds_check_cpu(struct cpu_bds_info_s *this_bds_info)
 		 * from the cpu idle time.
 		 */
 
-		if (bds_tuners_ins.io_is_busy && idle_time >= iowait_time)
+		if ((bds_tuners_ins.io_is_busy != 0) && idle_time >= iowait_time)
 			idle_time -= iowait_time;
 
 		if (unlikely(!wall_time || wall_time < idle_time))
@@ -819,12 +730,6 @@ static void bds_check_cpu(struct cpu_bds_info_s *this_bds_info)
 	/* Check for frequency increase */
 	if (max_load_freq > bds_tuners_ins.up_threshold * policy->cur) {
 		/* If switching to max speed, apply sampling_down_factor */
-#ifndef CONFIG_CPU_FREQ_GOV_BADASS_2_PHASE
-		if (policy->cur < policy->max)
-			this_bds_info->rate_mult =
-				bds_tuners_ins.sampling_down_factor;
-		bds_freq_increase(policy, policy->max);
-#else
 		if (counter < 0)
 			counter = 0;
 
@@ -837,12 +742,6 @@ static void bds_check_cpu(struct cpu_bds_info_s *this_bds_info)
 				/* change to semi-busy phase (3) */
 				phase = 1;
 			}
-#ifdef CONFIG_CPU_FREQ_GOV_BADASS_3_PHASE
-			if ((counter > bds_tuners_ins.busy_threshold) && (phase < 2)) {
-				/* change to busy phase (full) */
-				phase = 2;
-			}
-#endif
 		}
 /*
  * Debug output for cpu control. Still needed for finetuning.
@@ -859,16 +758,6 @@ static void bds_check_cpu(struct cpu_bds_info_s *this_bds_info)
 				new_phase_max = bds_tuners_ins.two_phase_freq;
 			}
 			bds_freq_increase(policy, new_phase_max);
-#ifdef CONFIG_CPU_FREQ_GOV_BADASS_3_PHASE
-		} else if ((bds_tuners_ins.three_phase_freq != 0) && (phase == 1)) {
-			/* semi-busy phase */
-			if (bds_tuners_ins.three_phase_freq > (policy->max*PHASE_3_PERCENT/100)) {
-				new_phase_max = (policy->max*PHASE_3_PERCENT/100);
-			} else {
-				new_phase_max = bds_tuners_ins.three_phase_freq;
-			}
-			bds_freq_increase(policy, new_phase_max);
-#endif
 		} else {
 			/* busy phase */
 			if (policy->cur < policy->max)
@@ -876,28 +765,21 @@ static void bds_check_cpu(struct cpu_bds_info_s *this_bds_info)
 					bds_tuners_ins.sampling_down_factor;
 			bds_freq_increase(policy, policy->max);
 		}
-#endif
+
 		return;
 	}
-#ifdef CONFIG_CPU_FREQ_GOV_BADASS_2_PHASE
+
 	if (counter > 0) {
 		if (counter >= DECREASE_IDLE_COUNTER)
 			counter -= DECREASE_IDLE_COUNTER;
 		if ((counter > 0) && (counter < DECREASE_IDLE_COUNTER))
 			counter--;
 
-#ifdef CONFIG_CPU_FREQ_GOV_BADASS_3_PHASE
-		if ((counter < bds_tuners_ins.busy_clr_threshold) && (phase > 1)) {
-			/* change to semi busy phase */
-			phase = 1;
-		}
-#endif
 		if ((counter < bds_tuners_ins.semi_busy_clr_threshold) && (phase > 0)) {
 			/* change to idle phase */
 			phase = 0;
 		}
 	}
-#endif
 
 	/* Check for frequency decrease */
 	/* if we cannot reduce the frequency anymore, break out early */
@@ -990,29 +872,6 @@ static inline void bds_timer_init(struct cpu_bds_info_s *bds_info)
 static inline void bds_timer_exit(struct cpu_bds_info_s *bds_info)
 {
 	cancel_delayed_work_sync(&bds_info->work);
-}
-
-/*
- * Not all CPUs want IO time to be accounted as busy; this dependson how
- * efficient idling at a higher frequency/voltage is.
- * Pavel Machek says this is not so for various generations of AMD and old
- * Intel systems.
- * Mike Chan (androidlcom) calis this is also not true for ARM.
- * Because of this, whitelist specific known (series) of CPUs by default, and
- * leave all others up to the user.
- */
-static int should_io_be_busy(void)
-{
-#if defined(CONFIG_X86)
-	/*
-	 * For Intel, Core 2 (model 15) andl later have an efficient idle.
-	 */
-	if (boot_cpu_data.x86_vendor == X86_VENDOR_INTEL &&
-	    boot_cpu_data.x86 == 6 &&
-	    boot_cpu_data.x86_model >= 15)
-		return 1;
-#endif
-	return 0;
 }
 
 static void bds_refresh_callback(struct work_struct *unused)
@@ -1164,13 +1023,6 @@ static int cpufreq_governor_bds(struct cpufreq_policy *policy,
 			latency = policy->cpuinfo.transition_latency / 1000;
 			if (latency == 0)
 				latency = 1;
-			/* Bring kernel and HW constraints together */
-			min_sampling_rate = max(min_sampling_rate,
-					MIN_LATENCY_MULTIPLIER * latency);
-			bds_tuners_ins.sampling_rate =
-				max(min_sampling_rate,
-				    latency * LATENCY_MULTIPLIER);
-			bds_tuners_ins.io_is_busy = should_io_be_busy();
 		}
 		if (!cpu)
 			rc = input_register_handler(&bds_input_handler);
@@ -1224,38 +1076,18 @@ static int cpufreq_governor_bds(struct cpufreq_policy *policy,
 
 static int __init cpufreq_gov_bds_init(void)
 {
-	cputime64_t wall;
-	u64 idle_time;
 	unsigned int i;
-	int cpu = get_cpu();
 
-	idle_time = get_cpu_idle_time_us(cpu, &wall);
 	put_cpu();
-	if (idle_time != -1ULL) {
-		/* Idle micro accounting is supported. Use finer thresholds */
-		bds_tuners_ins.up_threshold = MICRO_FREQUENCY_UP_THRESHOLD;
-		bds_tuners_ins.down_differential =
-					MICRO_FREQUENCY_DOWN_DIFFERENTIAL;
-		/*
-		 * In no_hz/micro accounting case we set the minimum frequency
-		 * not depending on HZ, but fixed (very low). The deferred
-		 * timer might skip some samples if idle/sleeping as needed.
-		*/
-		min_sampling_rate = MICRO_FREQUENCY_MIN_SAMPLE_RATE;
-	} else {
-		/* For correct statistics, we need 10 ticks for each measure */
-		min_sampling_rate =
-			MIN_SAMPLING_RATE_RATIO * jiffies_to_usecs(10);
-	}
 
 	input_wq = create_workqueue("iewq");
 	if (!input_wq) {
 		printk(KERN_ERR "Failed to create iewq workqueue\n");
 		return -EFAULT;
 	}
-	for_each_possible_cpu(i) {
+
+	for_each_possible_cpu(i)
 		INIT_WORK(&per_cpu(bds_refresh_work, i), bds_refresh_callback);
-	}
 
 	return cpufreq_register_governor(&cpufreq_gov_badass);
 }
