@@ -81,27 +81,27 @@ static unsigned int ramp_down_step;
  * CPU freq will be increased if measured load > max_cpu_load;
  */
 #define DEFAULT_MAX_CPU_LOAD 85
-static unsigned long max_cpu_load;
+static unsigned int max_cpu_load;
 
 /*
  * CPU freq will be decreased if measured load < min_cpu_load;
  */
 #define DEFAULT_MIN_CPU_LOAD 70
-static unsigned long min_cpu_load;
+static unsigned int min_cpu_load;
 
 /*
  * The minimum amount of time to spend at a frequency before we can ramp up.
  * Notice we ignore this when we are below the ideal frequency.
  */
 #define DEFAULT_UP_RATE_US 48000;
-static unsigned long up_rate_us;
+static unsigned int up_rate_us;
 
 /*
  * The minimum amount of time to spend at a frequency before we can ramp down.
  * Notice we ignore this when we are above the ideal frequency.
  */
 #define DEFAULT_DOWN_RATE_US 49000;
-static unsigned long down_rate_us;
+static unsigned int down_rate_us;
 
 /*
  * The frequency to set when waking up from sleep.
@@ -162,7 +162,7 @@ enum {
 /*
  * Combination of the above debug flags.
  */
-static unsigned long debug_mask;
+static unsigned int debug_mask;
 
 static int cpufreq_governor_smartass_h3(struct cpufreq_policy *policy,
 		unsigned int event);
@@ -240,19 +240,19 @@ inline static unsigned int validate_freq(struct cpufreq_policy *policy, int freq
 	return freq;
 }
 
-inline static void reset_timer(unsigned long cpu, struct smartass_info_s *this_smartass) {
+inline static void reset_timer(unsigned int cpu, struct smartass_info_s *this_smartass) {
 	this_smartass->time_in_idle = get_cpu_idle_time(cpu, &this_smartass->idle_exit_time);
 	mod_timer(&this_smartass->timer, jiffies + sample_rate_jiffies);
 }
 
-inline static void work_cpumask_set(unsigned long cpu) {
+inline static void work_cpumask_set(unsigned int cpu) {
 	unsigned long flags;
 	spin_lock_irqsave(&cpumask_lock, flags);
 	cpumask_set_cpu(cpu, &work_cpumask);
 	spin_unlock_irqrestore(&cpumask_lock, flags);
 }
 
-inline static int work_cpumask_test_and_clear(unsigned long cpu) {
+inline static int work_cpumask_test_and_clear(unsigned int cpu) {
 	unsigned long flags;
 	int res = 0;
 	spin_lock_irqsave(&cpumask_lock, flags);
