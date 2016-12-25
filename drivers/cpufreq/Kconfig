@@ -154,6 +154,12 @@ config CPU_FREQ_DEFAULT_GOV_CLARITY
 	help
 	  Use the CPUFreq governor 'clarity' as default.
 
+config CPU_FREQ_DEFAULT_GOV_SMARTASSH3
+	bool "smartassH3"
+	select CPU_FREQ_GOV_SMARTASSH3
+	help
+	  Use the CPUFreq governor 'smartassH3' as default.
+
 endchoice
 
 config CPU_FREQ_GOV_PERFORMANCE
@@ -291,6 +297,12 @@ config CPU_FREQ_GOV_CLARITY
 	depends on CPU_FREQ
 	help
 	  'clarity' - A smart and Dynamic Conservative-based governor.
+
+config CPU_FREQ_GOV_SMARTASSH3
+	tristate "'smartassH3' cpufreq governor"
+	depends on CPU_FREQ
+	help
+	  'smartassH3' - "smart" optimized governor!
 
 config CPU_FREQ_GOV_CONSERVATIVE
 	tristate "'conservative' cpufreq governor"
