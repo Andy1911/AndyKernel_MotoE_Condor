@@ -11,6 +11,10 @@
  * Author : Ryan Andri a.k.a Rainforce279 @ xda-developer
  * A smart & dynamic cpufreq governor based on conservative
  *
+ * inspire from :
+ *               * smartass governor by Erasmux
+ *               * algorithm frequency limiter by faux123
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
@@ -30,42 +34,33 @@
 #include <linux/sched.h>
 #include <linux/powersuspend.h>
 
-/*
- * dbs is used in this file as a shortform for demandbased switching
- * It helps to keep variable names smaller, simpler
- */
 
-#define DEF_SAMPLING_RATE			(25000)
+/* Tunables start */
+#define DEF_SAMPLING_RATE			(40000)
 #define DEF_FREQUENCY_UP_THRESHOLD		(70)
 #define DEF_FREQUENCY_DOWN_THRESHOLD		(30)
 #define DEF_FREQ_MIDDLE				(787200)
-#define DEF_SUSPEND_MAX_FREQ			(787200)
-#define DEF_FREQ_STEP_UP			(4)
-#define DEF_FREQ_STEP_DOWN			(3)
-#define DEF_IGNORE_NICE_LOADS			(1)
-#define DEF_IO_IS_BUSY				(1)
+#define DEF_FREQ_MAX_SUSPEND			(787200)
+#define DEF_FREQ_AWAKE				(998400)
+#define DEF_FREQ_STEP_UP			(5)
+#define DEF_FREQ_STEP_DOWN			(5)
+#define DEF_IGNORE_NICE_LOADS			(0)
+#define DEF_IO_IS_BUSY				(0)
+/* Tunables end */
+
 
 /*
- * The polling frequency of this governor depends on the capability of
- * the processor. Default polling frequency is 1000 times the transition
- * latency of the processor. The governor will work on any processor with
- * transition latency <= 10mS, using appropriate sampling
- * rate.
- * For CPUs with transition latency > 10mS (mostly drivers with CPUFREQ_ETERNAL)
- * this governor will not work.
- * All times here are in uS.
+ * Dont edit!
+ * Leave this with default values
  */
 #define MIN_SAMPLING_RATE_RATIO			(2)
-
-static unsigned int min_sampling_rate;
-
-static int suspended;
-
 #define LATENCY_MULTIPLIER			(1000)
 #define MIN_LATENCY_MULTIPLIER			(100)
 #define TRANSITION_LATENCY_LIMIT		(10 * 1000 * 1000)
 #define MICRO_FREQUENCY_MIN_SAMPLE_RATE		(10000)
 
+static unsigned int min_sampling_rate;
+static bool suspended;
 static void do_dbs_timer(struct work_struct *work);
 
 struct cpu_dbs_info_s {
@@ -104,10 +99,10 @@ static struct dbs_tuners {
 	unsigned int down_threshold;
 	unsigned int ignore_nice;
 	unsigned int freq_middle;
-	unsigned int freq_middle_prev;
 	unsigned int freq_step_up;
 	unsigned int freq_step_down;
-	unsigned int suspend_max_freq;
+	unsigned int freq_max_suspend;
+	unsigned int freq_awake;
 	int io_is_busy;
 } dbs_tuners_ins = {
 	.sampling_rate = DEF_SAMPLING_RATE,
@@ -118,7 +113,8 @@ static struct dbs_tuners {
 	.freq_step_up = DEF_FREQ_STEP_UP,
 	.freq_step_down = DEF_FREQ_STEP_DOWN,
 	.io_is_busy = DEF_IO_IS_BUSY,
-	.suspend_max_freq = DEF_SUSPEND_MAX_FREQ,
+	.freq_max_suspend = DEF_FREQ_MAX_SUSPEND,
+	.freq_awake = DEF_FREQ_AWAKE,
 };
 
 static inline cputime64_t get_cpu_idle_time_jiffy(unsigned int cpu,
@@ -189,7 +185,7 @@ static struct notifier_block dbs_cpufreq_notifier_block = {
 	.notifier_call = dbs_cpufreq_notifier
 };
 
-static void suspend_resume(int suspend)
+static void suspend_resume(bool suspend)
 {
 	struct cpu_dbs_info_s *cpu_info;
 	struct cpufreq_policy *policy;
@@ -200,8 +196,8 @@ static void suspend_resume(int suspend)
 		policy = cpufreq_cpu_get(cpu);
 		if (suspend) {
 			cpu_info->cpu_maxcur_freq = policy->max;
-			policy->max = dbs_tuners_ins.suspend_max_freq;
-			policy->cpuinfo.max_freq = dbs_tuners_ins.suspend_max_freq;
+			policy->max = dbs_tuners_ins.freq_max_suspend;
+			policy->cpuinfo.max_freq = dbs_tuners_ins.freq_max_suspend;
 			pr_info("clarity governor (suspended): %u %u\n",
 				policy->cpuinfo.max_freq, cpu_info->cpu_max_freq);
 		} else {
@@ -218,9 +214,9 @@ static void suspend_resume(int suspend)
 
 static void clarity_power_suspend(struct power_suspend *handler)
 {
-	suspended = 1;
+	suspended = true;
 
-	if (dbs_tuners_ins.suspend_max_freq == UINT_MAX)
+	if (dbs_tuners_ins.freq_max_suspend == 0)
 		return;
 
 	suspend_resume(suspended);
@@ -232,17 +228,19 @@ static void clarity_late_resume(struct power_suspend *handler)
 	struct cpufreq_policy *policy;
 	unsigned int cpu;
 
-	suspended = 0;
+	suspended = false;
 
-	if (dbs_tuners_ins.suspend_max_freq == UINT_MAX)
+	if (dbs_tuners_ins.freq_max_suspend == 0)
 		return;
 
 	suspend_resume(suspended);
 	for_each_online_cpu(cpu) {
 		cpu_info = &per_cpu(clarity_cpu_dbs_info, cpu);
-		policy = cpufreq_cpu_get(0);
-		__cpufreq_driver_target(cpu_info->cur_policy, policy->max,
+		policy = cpufreq_cpu_get(cpu);
+		__cpufreq_driver_target(cpu_info->cur_policy, dbs_tuners_ins.freq_awake,
 				CPUFREQ_RELATION_L);
+		pr_info("clarity governor (awake): %u at awake freq by user %u\n",
+			policy->cur, dbs_tuners_ins.freq_awake);
 	}
 }
 
@@ -275,7 +273,8 @@ show_one(freq_middle, freq_middle);
 show_one(freq_step_up, freq_step_up);
 show_one(freq_step_down, freq_step_down);
 show_one(io_is_busy, io_is_busy);
-show_one(suspend_max_freq, suspend_max_freq);
+show_one(freq_max_suspend, freq_max_suspend);
+show_one(freq_awake, freq_awake);
 
 /**
  * update_sampling_rate - update sampling rate effective immediately if needed.
@@ -422,7 +421,6 @@ static ssize_t store_freq_middle(struct kobject *a, struct attribute *b,
 		return -EINVAL;
 
 	dbs_tuners_ins.freq_middle = input;
-	dbs_tuners_ins.freq_middle_prev = input;
 
 	return count;
 }
@@ -480,17 +478,43 @@ static ssize_t store_io_is_busy(struct kobject *a, struct attribute *b,
 	return count;
 }
 
-static ssize_t store_suspend_max_freq(struct kobject *a, struct attribute *b,
+static ssize_t store_freq_max_suspend(struct kobject *a, struct attribute *b,
 			       const char *buf, size_t count)
 {
+	struct cpufreq_policy *policy;
 	unsigned int input;
 	int ret;
 	ret = sscanf(buf, "%u", &input);
 
-	if (ret != 1 || input > UINT_MAX)
+	policy = cpufreq_cpu_get(0);
+
+	if (ret != 1 ||
+		input > policy->max ||
+		input < 0 ||
+		input < dbs_tuners_ins.freq_middle)
 		return -EINVAL;
 
-	dbs_tuners_ins.suspend_max_freq = input;
+	dbs_tuners_ins.freq_max_suspend = input;
+
+	return count;
+}
+
+static ssize_t store_freq_awake(struct kobject *a, struct attribute *b,
+			       const char *buf, size_t count)
+{
+	struct cpufreq_policy *policy;
+	unsigned int input;
+	int ret;
+	ret = sscanf(buf, "%u", &input);
+
+	policy = cpufreq_cpu_get(0);
+
+	if (ret != 1 ||
+		input > policy->max ||
+		input < 0)
+		return -EINVAL;
+
+	dbs_tuners_ins.freq_awake = input;
 
 	return count;
 }
@@ -503,7 +527,8 @@ define_one_global_rw(freq_middle);
 define_one_global_rw(freq_step_up);
 define_one_global_rw(freq_step_down);
 define_one_global_rw(io_is_busy);
-define_one_global_rw(suspend_max_freq);
+define_one_global_rw(freq_max_suspend);
+define_one_global_rw(freq_awake);
 
 static struct attribute *dbs_attributes[] = {
 	&sampling_rate_min.attr,
@@ -515,7 +540,8 @@ static struct attribute *dbs_attributes[] = {
 	&freq_step_up.attr,
 	&freq_step_down.attr,
 	&io_is_busy.attr,
-	&suspend_max_freq.attr,
+	&freq_max_suspend.attr,
+	&freq_awake.attr,
 	NULL
 };
 
@@ -603,7 +629,8 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 		if (this_dbs_info->requested_freq == policy->max)
 			return;
 
-		freq_target = (dbs_tuners_ins.freq_step_up * policy->max) / 100;
+		freq_target = (dbs_tuners_ins.freq_step_up *
+					policy->cpuinfo.max_freq) / 100;
 
 		/* max freq cannot be less than 100. But who knows.... */
 		if (unlikely(freq_target == 0))
@@ -615,6 +642,7 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 
 		__cpufreq_driver_target(policy, this_dbs_info->requested_freq,
 			CPUFREQ_RELATION_L);
+
 		return;
 	}
 	else if (max_load < dbs_tuners_ins.down_threshold)
@@ -622,7 +650,8 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 		if (dbs_tuners_ins.freq_step_down == 0)
 			return;
 
-		freq_target = (dbs_tuners_ins.freq_step_down * policy->max) / 100;
+		freq_target = (dbs_tuners_ins.freq_step_down *
+					policy->cpuinfo.max_freq) / 100;
 
 		this_dbs_info->requested_freq -= freq_target;
 		if (this_dbs_info->requested_freq < policy->min)
@@ -636,21 +665,12 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 
 		__cpufreq_driver_target(policy, this_dbs_info->requested_freq,
 				CPUFREQ_RELATION_H);
+
 		return;
+
 	} else {
 		if (policy->cur == dbs_tuners_ins.freq_middle)
 			return;
-
-
-		if (dbs_tuners_ins.freq_middle_prev == 0)
-			dbs_tuners_ins.freq_middle_prev = dbs_tuners_ins.freq_middle;
-
-		if (suspended) {
-			if (dbs_tuners_ins.freq_middle >
-				dbs_tuners_ins.suspend_max_freq)
-				dbs_tuners_ins.freq_middle = dbs_tuners_ins.suspend_max_freq;
-		} else
-			dbs_tuners_ins.freq_middle = dbs_tuners_ins.freq_middle_prev;
 
 		this_dbs_info->requested_freq = dbs_tuners_ins.freq_middle;
 
@@ -661,6 +681,8 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 
 		__cpufreq_driver_target(policy, this_dbs_info->requested_freq,
 				CPUFREQ_RELATION_L);
+
+		return;
 	}
 }
 
@@ -726,7 +748,7 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 
 		mutex_lock(&dbs_mutex);
 
-		suspended = 0;
+		suspended = false;
 
 		cpu_info = &per_cpu(clarity_cpu_dbs_info, 0);
 		policy = cpufreq_cpu_get(0);
