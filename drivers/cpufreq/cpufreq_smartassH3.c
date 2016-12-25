@@ -32,12 +32,14 @@
 #include <linux/cpufreq.h>
 #include <linux/sched.h>
 #include <linux/tick.h>
+#include <linux/time.h>
 #include <linux/timer.h>
 #include <linux/workqueue.h>
 #include <linux/moduleparam.h>
 #include <linux/notifier.h>
-#include <asm/cputime.h>
+#include <linux/kernel_stat.h>
 #include <linux/powersuspend.h>
+#include <asm/cputime.h>
 
 
 /******************** Tunable parameters: ********************/
@@ -175,6 +177,40 @@ struct cpufreq_governor cpufreq_gov_smartass_h3 = {
 	.owner = THIS_MODULE,
 };
 
+static inline u64 get_cpu_idle_time_jiffy(unsigned int cpu, u64 *wall)
+{
+	u64 idle_time;
+	u64 cur_wall_time;
+	u64 busy_time;
+
+	cur_wall_time = jiffies64_to_cputime64(get_jiffies_64());
+
+	busy_time  = kcpustat_cpu(cpu).cpustat[CPUTIME_USER];
+	busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_SYSTEM];
+	busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_IRQ];
+	busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_SOFTIRQ];
+	busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_STEAL];
+	busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_NICE];
+
+	idle_time = cur_wall_time - busy_time;
+	if (wall)
+		*wall = jiffies_to_usecs(cur_wall_time);
+
+	return jiffies_to_usecs(idle_time);
+}
+
+static inline cputime64_t get_cpu_idle_time(unsigned int cpu, cputime64_t *wall)
+{
+	u64 idle_time = get_cpu_idle_time_us(cpu, NULL);
+
+	if (idle_time == -1ULL)
+		return get_cpu_idle_time_jiffy(cpu, wall);
+	else
+		idle_time += get_cpu_iowait_time_us(cpu, wall);
+
+	return idle_time;
+}
+
 inline static void smartass_update_min_max(struct smartass_info_s *this_smartass, struct cpufreq_policy *policy, int suspend) {
 	if (suspend) {
 		this_smartass->ideal_speed = // sleep_ideal_freq; but make sure it obeys the policy min/max
@@ -205,7 +241,7 @@ inline static unsigned int validate_freq(struct cpufreq_policy *policy, int freq
 }
 
 inline static void reset_timer(unsigned long cpu, struct smartass_info_s *this_smartass) {
-	this_smartass->time_in_idle = get_cpu_idle_time_us(cpu, &this_smartass->idle_exit_time);
+	this_smartass->time_in_idle = get_cpu_idle_time(cpu, &this_smartass->idle_exit_time);
 	mod_timer(&this_smartass->timer, jiffies + sample_rate_jiffies);
 }
 
@@ -286,7 +322,7 @@ static void cpufreq_smartass_timer(unsigned long cpu)
 	struct smartass_info_s *this_smartass = &per_cpu(smartass_info, cpu);
 	struct cpufreq_policy *policy = this_smartass->cur_policy;
 
-	now_idle = get_cpu_idle_time_us(cpu, &update_time);
+	now_idle = get_cpu_idle_time(cpu, &update_time);
 	old_freq = policy->cur;
 
 	if (this_smartass->idle_exit_time == 0 || update_time == this_smartass->idle_exit_time)
@@ -473,7 +509,7 @@ static void cpufreq_smartass_freq_change_time_work(struct work_struct *work)
 		new_freq = target_freq(policy,this_smartass,new_freq,old_freq,relation);
 		if (new_freq)
 			this_smartass->freq_change_time_in_idle =
-				get_cpu_idle_time_us(cpu,&this_smartass->freq_change_time);
+				get_cpu_idle_time(cpu,&this_smartass->freq_change_time);
 
 		// reset timer:
 		if (new_freq < policy->max)
@@ -798,7 +834,7 @@ static void smartass_suspend(int cpu, int suspend)
 		// Eventually, the timer will adjust the frequency if necessary.
 
 		this_smartass->freq_change_time_in_idle =
-			get_cpu_idle_time_us(cpu,&this_smartass->freq_change_time);
+			get_cpu_idle_time(cpu,&this_smartass->freq_change_time);
 
 		dprintk(SMARTASS_DEBUG_JUMPS,"SmartassS: suspending at %d\n",policy->cur);
 	}
