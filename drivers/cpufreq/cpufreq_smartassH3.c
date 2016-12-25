@@ -393,7 +393,8 @@ static void cpufreq_smartass_timer(unsigned long cpu)
 
 static void cpufreq_idle(void)
 {
-	struct smartass_info_s *this_smartass = &per_cpu(smartass_info, smp_processor_id());
+	unsigned int cpu = smp_processor_id();
+	struct smartass_info_s *this_smartass = &per_cpu(smartass_info, cpu);
 	struct cpufreq_policy *policy = this_smartass->cur_policy;
 
 	if (!this_smartass->enable) {
@@ -407,12 +408,13 @@ static void cpufreq_idle(void)
 	pm_idle_old();
 
 	if (!timer_pending(&this_smartass->timer))
-		reset_timer(smp_processor_id(), this_smartass);
+		reset_timer(cpu, this_smartass);
 }
 
 static int cpufreq_idle_notifier(struct notifier_block *nb,
 	unsigned long val, void *data) {
-	struct smartass_info_s *this_smartass = &per_cpu(smartass_info, smp_processor_id());
+	unsigned int cpu = smp_processor_id();
+	struct smartass_info_s *this_smartass = &per_cpu(smartass_info, cpu);
 	struct cpufreq_policy *policy = this_smartass->cur_policy;
 
 	if (!this_smartass->enable)
@@ -420,14 +422,14 @@ static int cpufreq_idle_notifier(struct notifier_block *nb,
 
 	if (val == IDLE_START) {
 		if (policy->cur == policy->max && !timer_pending(&this_smartass->timer)) {
-			reset_timer(smp_processor_id(), this_smartass);
+			reset_timer(cpu, this_smartass);
 		} else if (policy->cur == policy->min) {
 			if (timer_pending(&this_smartass->timer))
 				del_timer(&this_smartass->timer);
 		}
 	} else if (val == IDLE_END) {
 		if (policy->cur == policy->min && !timer_pending(&this_smartass->timer))
-			reset_timer(smp_processor_id(), this_smartass);
+			reset_timer(cpu, this_smartass);
 	}
 
 	return NOTIFY_OK;
@@ -524,9 +526,9 @@ static void cpufreq_smartass_freq_change_time_work(struct work_struct *work)
 	}
 }
 
-static void smartass_suspend(int cpu, int suspend)
+static void smartass_suspend(unsigned int cpu, int suspend)
 {
-	struct smartass_info_s *this_smartass = &per_cpu(smartass_info, smp_processor_id());
+	struct smartass_info_s *this_smartass = &per_cpu(smartass_info, cpu);
 	struct cpufreq_policy *policy = this_smartass->cur_policy;
 	unsigned int new_freq;
 
@@ -552,25 +554,25 @@ static void smartass_suspend(int cpu, int suspend)
 		dprintk(SMARTASS_DEBUG_JUMPS,"SmartassS: suspending at %d\n",policy->cur);
 	}
 
-	reset_timer(smp_processor_id(),this_smartass);
+	reset_timer(cpu, this_smartass);
 }
 
 static void smartass_power_suspend(struct power_suspend *handler) {
-	int i;
+	unsigned int i;
 	if (suspended || sleep_ideal_freq==0) // disable behavior for sleep_ideal_freq==0
 		return;
 	suspended = 1;
 	for_each_online_cpu(i)
-		smartass_suspend(i,1);
+		smartass_suspend(i, suspended);
 }
 
 static void smartass_late_resume(struct power_suspend *handler) {
-	int i;
+	unsigned int i;
 	if (!suspended) // already not suspended so nothing to do
 		return;
 	suspended = 0;
 	for_each_online_cpu(i)
-		smartass_suspend(i,0);
+		smartass_suspend(i, suspended);
 }
 
 static struct power_suspend smartass_power_suspend_handler = {
