@@ -493,6 +493,12 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 		if ((!cpu_online(cpu)) || (!policy->cur))
 			return -EINVAL;
 
+		dbs_wq = alloc_workqueue("conservative_dbs_wq", WQ_HIGHPRI, 0);
+		if (!dbs_wq) {
+			printk(KERN_ERR "Failed to create conservative_dbs_wq workqueue\n");
+			return -EFAULT;
+		}
+
 		mutex_lock(&dbs_mutex);
 
 		for_each_cpu(j, policy->cpus) {
@@ -558,6 +564,7 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 		mutex_lock(&dbs_mutex);
 		dbs_enable--;
 		mutex_destroy(&this_dbs_info->timer_mutex);
+		destroy_workqueue(dbs_wq);
 
 		/*
 		 * Stop the timerschedule work, when this governor
@@ -604,19 +611,12 @@ struct cpufreq_governor cpufreq_gov_conservative = {
 
 static int __init cpufreq_gov_dbs_init(void)
 {
-	dbs_wq = alloc_workqueue("conservative_dbs_wq", WQ_HIGHPRI, 0);
-	if (!dbs_wq) {
-		printk(KERN_ERR "Failed to create conservative_dbs_wq workqueue\n");
-		return -EFAULT;
-	}
-
 	return cpufreq_register_governor(&cpufreq_gov_conservative);
 }
 
 static void __exit cpufreq_gov_dbs_exit(void)
 {
 	cpufreq_unregister_governor(&cpufreq_gov_conservative);
-	destroy_workqueue(dbs_wq);
 }
 
 
