@@ -49,7 +49,7 @@
  * towards the ideal frequency and slower after it has passed it. Similarly,
  * lowering the frequency towards the ideal frequency is faster than below it.
  */
-#define DEFAULT_AWAKE_IDEAL_FREQ 378000
+#define DEFAULT_AWAKE_IDEAL_FREQ 787200
 static unsigned int awake_ideal_freq;
 
 /*
@@ -58,7 +58,7 @@ static unsigned int awake_ideal_freq;
  * that practically when sleep_ideal_freq==0 the awake_ideal_freq is used
  * also when suspended).
  */
-#define DEFAULT_SLEEP_IDEAL_FREQ 378000
+#define DEFAULT_SLEEP_IDEAL_FREQ 300000
 static unsigned int sleep_ideal_freq;
 
 /*
@@ -66,7 +66,7 @@ static unsigned int sleep_ideal_freq;
  * Zero disables and causes to always jump straight to max frequency.
  * When below the ideal freqeuncy we always ramp up to the ideal freq.
  */
-#define DEFAULT_RAMP_UP_STEP 80000
+#define DEFAULT_RAMP_UP_STEP 40000
 static unsigned int ramp_up_step;
 
 /*
@@ -74,40 +74,40 @@ static unsigned int ramp_up_step;
  * Zero disables and will calculate ramp down according to load heuristic.
  * When above the ideal freqeuncy we always ramp down to the ideal freq.
  */
-#define DEFAULT_RAMP_DOWN_STEP 80000
+#define DEFAULT_RAMP_DOWN_STEP 40000
 static unsigned int ramp_down_step;
 
 /*
  * CPU freq will be increased if measured load > max_cpu_load;
  */
-#define DEFAULT_MAX_CPU_LOAD 85
+#define DEFAULT_MAX_CPU_LOAD 80
 static unsigned int max_cpu_load;
 
 /*
  * CPU freq will be decreased if measured load < min_cpu_load;
  */
-#define DEFAULT_MIN_CPU_LOAD 70
+#define DEFAULT_MIN_CPU_LOAD 40
 static unsigned int min_cpu_load;
 
 /*
  * The minimum amount of time to spend at a frequency before we can ramp up.
  * Notice we ignore this when we are below the ideal frequency.
  */
-#define DEFAULT_UP_RATE_US 48000;
+#define DEFAULT_UP_RATE_US 200000;
 static unsigned int up_rate_us;
 
 /*
  * The minimum amount of time to spend at a frequency before we can ramp down.
  * Notice we ignore this when we are above the ideal frequency.
  */
-#define DEFAULT_DOWN_RATE_US 49000;
+#define DEFAULT_DOWN_RATE_US 200000;
 static unsigned int down_rate_us;
 
 /*
  * The frequency to set when waking up from sleep.
  * When sleep_ideal_freq=0 this will have no effect.
  */
-#define DEFAULT_SLEEP_WAKEUP_FREQ 99999999
+#define DEFAULT_SLEEP_WAKEUP_FREQ 998400
 static unsigned int sleep_wakeup_freq;
 
 /*
@@ -343,7 +343,7 @@ static void cpufreq_smartass_timer(unsigned long cpu)
 	else
 		cpu_load = 100 * (unsigned int)(delta_time - delta_idle) / (unsigned int)delta_time;
 
-	dprintk(SMARTASS_DEBUG_LOAD,"smartassT @ %d: load %d (delta_time %llu)\n",
+	dprintk(SMARTASS_DEBUG_LOAD,"smartassT @ %d: load %d (delta_time %u)\n",
 		old_freq,cpu_load,delta_time);
 
 	this_smartass->cur_cpu_load = cpu_load;
@@ -358,7 +358,7 @@ static void cpufreq_smartass_timer(unsigned long cpu)
 			 (old_freq < this_smartass->ideal_speed || delta_idle == 0 ||
 			  (unsigned int)(update_time - this_smartass->freq_change_time) >= up_rate_us))
 		{
-			dprintk(SMARTASS_DEBUG_ALG,"smartassT @ %d ramp up: load %d (delta_idle %llu)\n",
+			dprintk(SMARTASS_DEBUG_ALG,"smartassT @ %d ramp up: load %d (delta_idle %u)\n",
 				old_freq,cpu_load,delta_idle);
 			this_smartass->ramp_dir = 1;
 			work_cpumask_set(cpu);
@@ -373,7 +373,7 @@ static void cpufreq_smartass_timer(unsigned long cpu)
 		 (old_freq > this_smartass->ideal_speed ||
 		  (unsigned int)(update_time - this_smartass->freq_change_time) <= down_rate_us))
 	{
-		dprintk(SMARTASS_DEBUG_ALG,"smartassT @ %d ramp down: load %d (delta_idle %llu)\n",
+		dprintk(SMARTASS_DEBUG_ALG,"smartassT @ %d ramp down: load %d (delta_idle %u)\n",
 			old_freq,cpu_load,delta_idle);
 		this_smartass->ramp_dir = -1;
 		work_cpumask_set(cpu);
@@ -655,7 +655,7 @@ static ssize_t store_sleep_ideal_freq(struct kobject *kobj, struct attribute *at
 
 	if (input != 0)
 		if (suspended)
-			clarity_update_min_max_allcpus();
+			smartass_update_min_max_allcpus();
 
 	return count;
 }
@@ -697,7 +697,7 @@ static ssize_t store_awake_ideal_freq(struct kobject *kobj, struct attribute *at
 
 	if (input != 0)
 		if (!suspended)
-			clarity_update_min_max_allcpus();
+			smartass_update_min_max_allcpus();
 
 	return count;
 }
