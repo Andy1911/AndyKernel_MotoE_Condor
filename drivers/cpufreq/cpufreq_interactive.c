@@ -71,6 +71,10 @@ static unsigned int hispeed_freq;
 #define DEFAULT_GO_HISPEED_LOAD 99
 static unsigned long go_hispeed_load = DEFAULT_GO_HISPEED_LOAD;
 
+/* Go to low speed when CPU load at or above this value. */
+#define DEFAULT_GO_LOWSPEED_LOAD 10
+static unsigned long go_lowspeed_load = DEFAULT_GO_LOWSPEED_LOAD;
+
 /* Sampling down factor to be applied to min_sample_time at max freq */
 static unsigned int sampling_down_factor;
 
@@ -433,6 +437,8 @@ static void cpufreq_interactive_timer(unsigned long data)
 			if (new_freq < hispeed_freq)
 				new_freq = hispeed_freq;
 		}
+	} else if ( cpu_load <= go_lowspeed_load) {
+		new_freq = pcpu->policy->min;
 	} else {
 		new_freq = choose_freq(pcpu, loadadjfreq);
 
@@ -958,6 +964,29 @@ static ssize_t store_go_hispeed_load(struct kobject *kobj,
 static struct global_attr go_hispeed_load_attr = __ATTR(go_hispeed_load, 0644,
 		show_go_hispeed_load, store_go_hispeed_load);
 
+static ssize_t show_go_lowspeed_load(struct kobject *kobj,
+				     struct attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", go_lowspeed_load);
+}
+
+static ssize_t store_go_lowspeed_load(struct kobject *kobj,
+			struct attribute *attr, const char *buf, size_t count)
+{
+	int ret;
+	unsigned long val;
+
+	ret = strict_strtoul(buf, 0, &val);
+	if (ret < 0)
+		return ret;
+	go_lowspeed_load = val;
+	return count;
+}
+
+static struct global_attr go_lowspeed_load_attr = __ATTR(go_lowspeed_load, 0644,
+		show_go_lowspeed_load, store_go_lowspeed_load);
+
+
 static ssize_t show_min_sample_time(struct kobject *kobj,
 				struct attribute *attr, char *buf)
 {
@@ -1196,6 +1225,7 @@ static struct attribute *interactive_attributes[] = {
 	&above_hispeed_delay_attr.attr,
 	&hispeed_freq_attr.attr,
 	&go_hispeed_load_attr.attr,
+	&go_lowspeed_load_attr.attr,
 	&min_sample_time_attr.attr,
 	&timer_rate_attr.attr,
 	&timer_slack.attr,
