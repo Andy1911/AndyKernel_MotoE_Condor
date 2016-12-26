@@ -80,27 +80,27 @@ static unsigned int ramp_down_step;
 /*
  * CPU freq will be increased if measured load > max_cpu_load;
  */
-#define DEFAULT_MAX_CPU_LOAD 80
+#define DEFAULT_MAX_CPU_LOAD 70
 static unsigned int max_cpu_load;
 
 /*
  * CPU freq will be decreased if measured load < min_cpu_load;
  */
-#define DEFAULT_MIN_CPU_LOAD 40
+#define DEFAULT_MIN_CPU_LOAD 30
 static unsigned int min_cpu_load;
 
 /*
  * The minimum amount of time to spend at a frequency before we can ramp up.
  * Notice we ignore this when we are below the ideal frequency.
  */
-#define DEFAULT_UP_RATE_US 200000;
+#define DEFAULT_UP_RATE_US 120000;
 static unsigned int up_rate_us;
 
 /*
  * The minimum amount of time to spend at a frequency before we can ramp down.
  * Notice we ignore this when we are above the ideal frequency.
  */
-#define DEFAULT_DOWN_RATE_US 200000;
+#define DEFAULT_DOWN_RATE_US 120000;
 static unsigned int down_rate_us;
 
 /*
@@ -559,8 +559,10 @@ static void smartass_suspend(unsigned int cpu, int suspend)
 
 static void smartass_power_suspend(struct power_suspend *handler) {
 	unsigned int i;
-	if (suspended || sleep_ideal_freq==0) // disable behavior for sleep_ideal_freq==0
+
+	if (suspended || sleep_ideal_freq == 0)
 		return;
+
 	suspended = 1;
 	for_each_online_cpu(i)
 		smartass_suspend(i, suspended);
@@ -568,8 +570,10 @@ static void smartass_power_suspend(struct power_suspend *handler) {
 
 static void smartass_late_resume(struct power_suspend *handler) {
 	unsigned int i;
-	if (!suspended) // already not suspended so nothing to do
+
+	if (!suspended)
 		return;
+
 	suspended = 0;
 	for_each_online_cpu(i)
 		smartass_suspend(i, suspended);
@@ -837,59 +841,13 @@ static int cpufreq_governor_smartass_h3(struct cpufreq_policy *new_policy,
 		unsigned int event)
 {
 	unsigned int cpu = new_policy->cpu;
-	unsigned int i;
 	int rc;
-	struct smartass_info_s *this_smartass_gov;
 	struct smartass_info_s *this_smartass = &per_cpu(smartass_info, cpu);
 
 	switch (event) {
 	case CPUFREQ_GOV_START:
 		if ((!cpu_online(cpu)) || (!new_policy->cur))
 			return -EINVAL;
-
-		debug_mask = 0;
-		up_rate_us = DEFAULT_UP_RATE_US;
-		down_rate_us = DEFAULT_DOWN_RATE_US;
-		sleep_ideal_freq = DEFAULT_SLEEP_IDEAL_FREQ;
-		sleep_wakeup_freq = DEFAULT_SLEEP_WAKEUP_FREQ;
-		awake_ideal_freq = DEFAULT_AWAKE_IDEAL_FREQ;
-		sample_rate_jiffies = DEFAULT_SAMPLE_RATE_JIFFIES;
-		ramp_up_step = DEFAULT_RAMP_UP_STEP;
-		ramp_down_step = DEFAULT_RAMP_DOWN_STEP;
-		max_cpu_load = DEFAULT_MAX_CPU_LOAD;
-		min_cpu_load = DEFAULT_MIN_CPU_LOAD;
-
-		spin_lock_init(&cpumask_lock);
-
-		suspended = 0;
-
-		/* Initalize per-cpu data: */
-		for_each_possible_cpu(i) {
-			this_smartass_gov = &per_cpu(smartass_info, i);
-			this_smartass_gov->enable = 0;
-			this_smartass_gov->cur_policy = 0;
-			this_smartass_gov->ramp_dir = 0;
-			this_smartass_gov->time_in_idle = 0;
-			this_smartass_gov->idle_exit_time = 0;
-			this_smartass_gov->freq_change_time = 0;
-			this_smartass_gov->freq_change_time_in_idle = 0;
-			this_smartass_gov->cur_cpu_load = 0;
-			// intialize timer:
-			init_timer_deferrable(&this_smartass->timer);
-			this_smartass_gov->timer.function = cpufreq_smartass_timer;
-			this_smartass_gov->timer.data = i;
-			work_cpumask_test_and_clear(i);
-		}
-
-		// Scale up is high priority
-		up_wq = create_workqueue("ksmartass_up");
-		down_wq = create_workqueue("ksmartass_down");
-		if (!up_wq || !down_wq)
-			return -ENOMEM;
-
-		INIT_WORK(&freq_scale_work, cpufreq_smartass_freq_change_time_work);
-
-		register_power_suspend(&smartass_power_suspend_handler);
 
 		this_smartass->cur_policy = new_policy;
 
@@ -946,9 +904,6 @@ static int cpufreq_governor_smartass_h3(struct cpufreq_policy *new_policy,
 		del_timer(&this_smartass->timer);
 		flush_work(&freq_scale_work);
 		this_smartass->idle_exit_time = 0;
-		unregister_power_suspend(&smartass_power_suspend_handler);
-		destroy_workqueue(up_wq);
-		destroy_workqueue(down_wq);
 
 		if (atomic_dec_return(&active_count) <= 1) {
 			sysfs_remove_group(cpufreq_global_kobject,
@@ -964,12 +919,62 @@ static int cpufreq_governor_smartass_h3(struct cpufreq_policy *new_policy,
 
 static int __init cpufreq_smartass_init(void)
 {
+	unsigned int i;
+	struct smartass_info_s *this_smartass;
+
+	debug_mask = 0;
+	up_rate_us = DEFAULT_UP_RATE_US;
+	down_rate_us = DEFAULT_DOWN_RATE_US;
+	sleep_ideal_freq = DEFAULT_SLEEP_IDEAL_FREQ;
+	sleep_wakeup_freq = DEFAULT_SLEEP_WAKEUP_FREQ;
+	awake_ideal_freq = DEFAULT_AWAKE_IDEAL_FREQ;
+	sample_rate_jiffies = DEFAULT_SAMPLE_RATE_JIFFIES;
+	ramp_up_step = DEFAULT_RAMP_UP_STEP;
+	ramp_down_step = DEFAULT_RAMP_DOWN_STEP;
+	max_cpu_load = DEFAULT_MAX_CPU_LOAD;
+	min_cpu_load = DEFAULT_MIN_CPU_LOAD;
+
+	spin_lock_init(&cpumask_lock);
+
+	suspended = 0;
+
+	/* Initalize per-cpu data: */
+	for_each_possible_cpu(i) {
+		this_smartass = &per_cpu(smartass_info, i);
+		this_smartass->enable = 0;
+		this_smartass->cur_policy = 0;
+		this_smartass->ramp_dir = 0;
+		this_smartass->time_in_idle = 0;
+		this_smartass->idle_exit_time = 0;
+		this_smartass->freq_change_time = 0;
+		this_smartass->freq_change_time_in_idle = 0;
+		this_smartass->cur_cpu_load = 0;
+		// intialize timer:
+		init_timer_deferrable(&this_smartass->timer);
+		this_smartass->timer.function = cpufreq_smartass_timer;
+		this_smartass->timer.data = i;
+		work_cpumask_test_and_clear(i);
+	}
+
+	// Scale up is high priority
+	up_wq = create_workqueue("ksmartass_up");
+	down_wq = create_workqueue("ksmartass_down");
+	if (!up_wq || !down_wq)
+		return -ENOMEM;
+
+	register_power_suspend(&smartass_power_suspend_handler);
+
+	INIT_WORK(&freq_scale_work, cpufreq_smartass_freq_change_time_work);
+
 	return cpufreq_register_governor(&cpufreq_gov_smartass_h3);
 }
 
 static void __exit cpufreq_smartass_exit(void)
 {
 	cpufreq_unregister_governor(&cpufreq_gov_smartass_h3);
+	unregister_power_suspend(&smartass_power_suspend_handler);
+	destroy_workqueue(up_wq);
+	destroy_workqueue(down_wq);
 }
 
 MODULE_AUTHOR ("Erasmux, moded by H3ROS & C3C0");

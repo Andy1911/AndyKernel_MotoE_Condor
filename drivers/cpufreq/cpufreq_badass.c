@@ -987,16 +987,6 @@ static int cpufreq_governor_bds(struct cpufreq_policy *policy,
 		if ((!cpu_online(cpu)) || (!policy->cur))
 			return -EINVAL;
 
-		put_cpu();
-		input_wq = create_workqueue("iewq");
-		if (!input_wq) {
-			printk(KERN_ERR "Failed to create iewq workqueue\n");
-			return -EFAULT;
-		}
-
-		for_each_possible_cpu(j)
-			INIT_WORK(&per_cpu(bds_refresh_work, j), bds_refresh_callback);
-
 		mutex_lock(&bds_mutex);
 
 		bds_enable++;
@@ -1052,7 +1042,6 @@ static int cpufreq_governor_bds(struct cpufreq_policy *policy,
 
 		mutex_lock(&bds_mutex);
 		mutex_destroy(&this_bds_info->timer_mutex);
-		destroy_workqueue(input_wq);
 		bds_enable--;
 		/* If device is being removed, policy is no longer
 		 * valid. */
@@ -1087,12 +1076,26 @@ static int cpufreq_governor_bds(struct cpufreq_policy *policy,
 
 static int __init cpufreq_gov_bds_init(void)
 {
+	unsigned int i;
+
+	put_cpu();
+
+	input_wq = create_workqueue("iewq");
+	if (!input_wq) {
+		printk(KERN_ERR "Failed to create iewq workqueue\n");
+		return -EFAULT;
+	}
+
+	for_each_possible_cpu(i)
+		INIT_WORK(&per_cpu(bds_refresh_work, i), bds_refresh_callback);
+
 	return cpufreq_register_governor(&cpufreq_gov_badass);
 }
 
 static void __exit cpufreq_gov_bds_exit(void)
 {
 	cpufreq_unregister_governor(&cpufreq_gov_badass);
+	destroy_workqueue(input_wq);
 }
 
 static int set_enable_bds_input_event_param(const char *val, struct kernel_param *kp)
