@@ -1525,10 +1525,6 @@ static int lcd_notifier_callback(struct notifier_block *this,
 	unsigned long event, void *data)
 {
 	struct ct406_data *ct = ct406_misc_data;
-	struct ct406_data *ctx = container_of(this,
-		struct ct406_data, notif);
-
-	mutex_lock(&ctx->mutex);
 
 	switch (event) {
 	case LCD_EVENT_ON_END:
@@ -1556,8 +1552,6 @@ static int lcd_notifier_callback(struct notifier_block *this,
 	default:
 		break;
 	}
-
-	mutex_unlock(&ctx->mutex);
 
 	return NOTIFY_OK;
 }
