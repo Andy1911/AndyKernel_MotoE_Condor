@@ -74,18 +74,6 @@ static unsigned int min_sampling_rate = MICRO_FREQUENCY_MIN_SAMPLE_RATE;
 #define POWERSAVE_BIAS_MINLEVEL			(-1000)
 
 static void do_bds_timer(struct work_struct *work);
-static int cpufreq_governor_bds(struct cpufreq_policy *policy,
-				unsigned int event);
-
-#ifndef CONFIG_CPU_FREQ_DEFAULT_GOV_BADASS
-static
-#endif
-struct cpufreq_governor cpufreq_gov_badass = {
-       .name                   = "badass",
-       .governor               = cpufreq_governor_bds,
-       .max_transition_latency = TRANSITION_LATENCY_LIMIT,
-       .owner                  = THIS_MODULE,
-};
 
 /* Sampling types */
 enum {BDS_NORMAL_SAMPLE, BDS_SUB_SAMPLE};
@@ -122,8 +110,6 @@ static unsigned int bds_enable;	/* number of CPUs using this policy */
  * bds_mutex protects bds_enable in governor start/stop.
  */
 static DEFINE_MUTEX(bds_mutex);
-
-static struct workqueue_struct *input_wq;
 
 static DEFINE_PER_CPU(struct work_struct, bds_refresh_work);
 
@@ -917,7 +903,7 @@ static void bds_input_event(struct input_handle *handle, unsigned int type,
 		}
 
 		for_each_online_cpu(i) {
-			queue_work_on(i, input_wq, &per_cpu(bds_refresh_work, i));
+			schedule_work_on(i, &per_cpu(bds_refresh_work, i));
 		}
 	}
 }
@@ -972,12 +958,12 @@ static struct input_handler bds_input_handler = {
 	.id_table	= bds_ids,
 };
 
-static int cpufreq_governor_bds(struct cpufreq_policy *policy,
+static int cpufreq_governor_badass(struct cpufreq_policy *policy,
 				   unsigned int event)
 {
 	unsigned int cpu = policy->cpu;
 	struct cpu_bds_info_s *this_bds_info;
-	unsigned int j;
+	unsigned int j, i;
 	int rc;
 
 	this_bds_info = &per_cpu(od_cpu_bds_info, cpu);
@@ -1030,6 +1016,9 @@ static int cpufreq_governor_bds(struct cpufreq_policy *policy,
 
 		mutex_init(&this_bds_info->timer_mutex);
 
+		for_each_possible_cpu(i)
+			INIT_WORK(&per_cpu(bds_refresh_work, i), bds_refresh_callback);
+
 		if (!badass_powersave_bias_setspeed(
 					this_bds_info->cur_policy,
 					NULL,
@@ -1039,6 +1028,9 @@ static int cpufreq_governor_bds(struct cpufreq_policy *policy,
 
 	case CPUFREQ_GOV_STOP:
 		bds_timer_exit(this_bds_info);
+
+		for_each_possible_cpu(i)
+			cancel_work_sync(&per_cpu(bds_refresh_work, i));
 
 		mutex_lock(&bds_mutex);
 		mutex_destroy(&this_bds_info->timer_mutex);
@@ -1074,28 +1066,24 @@ static int cpufreq_governor_bds(struct cpufreq_policy *policy,
 	return 0;
 }
 
+#ifndef CONFIG_CPU_FREQ_DEFAULT_GOV_BADASS
+static
+#endif
+struct cpufreq_governor cpufreq_gov_badass = {
+       .name                   = "badass",
+       .governor               = cpufreq_governor_badass,
+       .max_transition_latency = TRANSITION_LATENCY_LIMIT,
+       .owner                  = THIS_MODULE,
+};
+
 static int __init cpufreq_gov_bds_init(void)
 {
-	unsigned int i;
-
-	put_cpu();
-
-	input_wq = create_workqueue("iewq");
-	if (!input_wq) {
-		printk(KERN_ERR "Failed to create iewq workqueue\n");
-		return -EFAULT;
-	}
-
-	for_each_possible_cpu(i)
-		INIT_WORK(&per_cpu(bds_refresh_work, i), bds_refresh_callback);
-
 	return cpufreq_register_governor(&cpufreq_gov_badass);
 }
 
 static void __exit cpufreq_gov_bds_exit(void)
 {
 	cpufreq_unregister_governor(&cpufreq_gov_badass);
-	destroy_workqueue(input_wq);
 }
 
 static int set_enable_bds_input_event_param(const char *val, struct kernel_param *kp)

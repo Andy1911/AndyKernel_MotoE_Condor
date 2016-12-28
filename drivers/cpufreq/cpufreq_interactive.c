@@ -139,19 +139,6 @@ static unsigned int up_threshold_any_cpu_load;
 static unsigned int sync_freq;
 static unsigned int up_threshold_any_cpu_freq;
 
-static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
-		unsigned int event);
-
-#ifndef CONFIG_CPU_FREQ_DEFAULT_GOV_INTERACTIVE
-static
-#endif
-struct cpufreq_governor cpufreq_gov_interactive = {
-	.name = "interactive",
-	.governor = cpufreq_governor_interactive,
-	.max_transition_latency = 10000000,
-	.owner = THIS_MODULE,
-};
-
 static inline cputime64_t get_cpu_idle_time_jiffy(unsigned int cpu,
 						  cputime64_t *wall)
 {
@@ -1265,18 +1252,52 @@ static struct notifier_block cpufreq_interactive_idle_nb = {
 	.notifier_call = cpufreq_interactive_idle_notifier,
 };
 
+static void cpufreq_interactive_nop_timer(unsigned long data)
+{
+}
+
 static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
 		unsigned int event)
 {
 	int rc;
-	unsigned int j;
+	unsigned int j, i;
 	struct cpufreq_interactive_cpuinfo *pcpu;
 	struct cpufreq_frequency_table *freq_table;
+	struct sched_param param = { .sched_priority = MAX_RT_PRIO-1 };
 
 	switch (event) {
 	case CPUFREQ_GOV_START:
 		if (!cpu_online(policy->cpu))
 			return -EINVAL;
+
+		/* Initalize per-cpu timers */
+		for_each_possible_cpu(i) {
+			struct cpufreq_interactive_cpuinfo *pcpu;
+			pcpu = &per_cpu(cpuinfo, i);
+			init_timer_deferrable(&pcpu->cpu_timer);
+			pcpu->cpu_timer.function = cpufreq_interactive_timer;
+			pcpu->cpu_timer.data = i;
+			init_timer(&pcpu->cpu_slack_timer);
+			pcpu->cpu_slack_timer.function = cpufreq_interactive_nop_timer;
+			spin_lock_init(&pcpu->load_lock);
+			init_rwsem(&pcpu->enable_sem);
+		}
+
+		spin_lock_init(&target_loads_lock);
+		spin_lock_init(&speedchange_cpumask_lock);
+		spin_lock_init(&above_hispeed_delay_lock);
+		mutex_init(&gov_lock);
+		speedchange_task =
+			kthread_create(cpufreq_interactive_speedchange_task, NULL,
+			    	   "cfinteractive");
+		if (IS_ERR(speedchange_task))
+			return PTR_ERR(speedchange_task);
+
+		sched_setscheduler_nocheck(speedchange_task, SCHED_FIFO, &param);
+		get_task_struct(speedchange_task);
+
+		/* NB: wake up so the thread does not look hung to the freezer */
+		wake_up_process(speedchange_task);
 
 		mutex_lock(&gov_lock);
 
@@ -1326,6 +1347,8 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
 		break;
 
 	case CPUFREQ_GOV_STOP:
+		kthread_stop(speedchange_task);
+		put_task_struct(speedchange_task);
 		mutex_lock(&gov_lock);
 		for_each_cpu(j, policy->cpus) {
 			pcpu = &per_cpu(cpuinfo, j);
@@ -1390,63 +1413,34 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
 	return 0;
 }
 
-static void cpufreq_interactive_nop_timer(unsigned long data)
-{
-}
+#ifndef CONFIG_CPU_FREQ_DEFAULT_GOV_INTERACTIVE
+static
+#endif
+struct cpufreq_governor cpufreq_gov_interactive = {
+	.name = "interactive",
+	.governor = cpufreq_governor_interactive,
+	.max_transition_latency = 10000000,
+	.owner = THIS_MODULE,
+};
 
 static int __init cpufreq_interactive_init(void)
 {
-	unsigned int i;
-	struct cpufreq_interactive_cpuinfo *pcpu;
-	struct sched_param param = { .sched_priority = MAX_RT_PRIO-1 };
-
-	/* Initalize per-cpu timers */
-	for_each_possible_cpu(i) {
-		pcpu = &per_cpu(cpuinfo, i);
-		init_timer_deferrable(&pcpu->cpu_timer);
-		pcpu->cpu_timer.function = cpufreq_interactive_timer;
-		pcpu->cpu_timer.data = i;
-		init_timer(&pcpu->cpu_slack_timer);
-		pcpu->cpu_slack_timer.function = cpufreq_interactive_nop_timer;
-		spin_lock_init(&pcpu->load_lock);
-		init_rwsem(&pcpu->enable_sem);
-	}
-
-	spin_lock_init(&target_loads_lock);
-	spin_lock_init(&speedchange_cpumask_lock);
-	spin_lock_init(&above_hispeed_delay_lock);
-	mutex_init(&gov_lock);
-	speedchange_task =
-		kthread_create(cpufreq_interactive_speedchange_task, NULL,
-			       "cfinteractive");
-	if (IS_ERR(speedchange_task))
-		return PTR_ERR(speedchange_task);
-
-	sched_setscheduler_nocheck(speedchange_task, SCHED_FIFO, &param);
-	get_task_struct(speedchange_task);
-
-	/* NB: wake up so the thread does not look hung to the freezer */
-	wake_up_process(speedchange_task);
-
 	return cpufreq_register_governor(&cpufreq_gov_interactive);
 }
+
+static void __exit cpufreq_interactive_exit(void)
+{
+	cpufreq_unregister_governor(&cpufreq_gov_interactive);
+}
+
+MODULE_AUTHOR("Mike Chan <mike@android.com>");
+MODULE_DESCRIPTION("'cpufreq_interactive' - A cpufreq governor for "
+	"Latency sensitive workloads");
+MODULE_LICENSE("GPL");
 
 #ifdef CONFIG_CPU_FREQ_DEFAULT_GOV_INTERACTIVE
 fs_initcall(cpufreq_interactive_init);
 #else
 module_init(cpufreq_interactive_init);
 #endif
-
-static void __exit cpufreq_interactive_exit(void)
-{
-	cpufreq_unregister_governor(&cpufreq_gov_interactive);
-	kthread_stop(speedchange_task);
-	put_task_struct(speedchange_task);
-}
-
 module_exit(cpufreq_interactive_exit);
-
-MODULE_AUTHOR("Mike Chan <mike@android.com>");
-MODULE_DESCRIPTION("'cpufreq_interactive' - A cpufreq governor for "
-	"Latency sensitive workloads");
-MODULE_LICENSE("GPL");

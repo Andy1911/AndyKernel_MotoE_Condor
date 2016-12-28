@@ -139,9 +139,6 @@ struct smartass_info_s {
 };
 static DEFINE_PER_CPU(struct smartass_info_s, smartass_info);
 
-/* Workqueues handle frequency scaling */
-static struct workqueue_struct *up_wq;
-static struct workqueue_struct *down_wq;
 static struct work_struct freq_scale_work;
 
 static cpumask_t work_cpumask;
@@ -163,19 +160,6 @@ enum {
  * Combination of the above debug flags.
  */
 static unsigned int debug_mask;
-
-static int cpufreq_governor_smartass_h3(struct cpufreq_policy *policy,
-		unsigned int event);
-
-#ifndef CONFIG_CPU_FREQ_DEFAULT_GOV_SMARTASSH3
-static
-#endif
-struct cpufreq_governor cpufreq_gov_smartass_h3 = {
-	.name = "smartassH3",
-	.governor = cpufreq_governor_smartass_h3,
-	.max_transition_latency = 9000000,
-	.owner = THIS_MODULE,
-};
 
 static inline u64 get_cpu_idle_time_jiffy(unsigned int cpu, u64 *wall)
 {
@@ -318,7 +302,7 @@ static void cpufreq_smartass_timer(unsigned long cpu)
 	int old_freq;
 	u64 update_time;
 	u64 now_idle;
-	int queued_work = 0;
+	int schedule_work_on = 0;
 	struct smartass_info_s *this_smartass = &per_cpu(smartass_info, cpu);
 	struct cpufreq_policy *policy = this_smartass->cur_policy;
 
@@ -362,8 +346,8 @@ static void cpufreq_smartass_timer(unsigned long cpu)
 				old_freq,cpu_load,delta_idle);
 			this_smartass->ramp_dir = 1;
 			work_cpumask_set(cpu);
-			queue_work(up_wq, &freq_scale_work);
-			queued_work = 1;
+			schedule_work(&freq_scale_work);
+			schedule_work_on = 1;
 		}
 		else this_smartass->ramp_dir = 0;
 	}
@@ -377,8 +361,8 @@ static void cpufreq_smartass_timer(unsigned long cpu)
 			old_freq,cpu_load,delta_idle);
 		this_smartass->ramp_dir = -1;
 		work_cpumask_set(cpu);
-		queue_work(down_wq, &freq_scale_work);
-		queued_work = 1;
+		schedule_work(&freq_scale_work);
+		schedule_work_on = 1;
 	}
 	else this_smartass->ramp_dir = 0;
 
@@ -387,7 +371,7 @@ static void cpufreq_smartass_timer(unsigned long cpu)
 	// the idle loop will activate the timer.
 	// Additionally, if we queued some work, the work task will reset the timer
 	// after it has done its adjustments.
-	if (!queued_work && old_freq < policy->max)
+	if (!schedule_work_on && old_freq < policy->max)
 		reset_timer(cpu,this_smartass);
 }
 
@@ -841,6 +825,7 @@ static int cpufreq_governor_smartass_h3(struct cpufreq_policy *new_policy,
 		unsigned int event)
 {
 	unsigned int cpu = new_policy->cpu;
+	unsigned int i;
 	int rc;
 	struct smartass_info_s *this_smartass = &per_cpu(smartass_info, cpu);
 
@@ -848,6 +833,45 @@ static int cpufreq_governor_smartass_h3(struct cpufreq_policy *new_policy,
 	case CPUFREQ_GOV_START:
 		if ((!cpu_online(cpu)) || (!new_policy->cur))
 			return -EINVAL;
+
+		debug_mask = 0;
+		up_rate_us = DEFAULT_UP_RATE_US;
+		down_rate_us = DEFAULT_DOWN_RATE_US;
+		sleep_ideal_freq = DEFAULT_SLEEP_IDEAL_FREQ;
+		sleep_wakeup_freq = DEFAULT_SLEEP_WAKEUP_FREQ;
+		awake_ideal_freq = DEFAULT_AWAKE_IDEAL_FREQ;
+		sample_rate_jiffies = DEFAULT_SAMPLE_RATE_JIFFIES;
+		ramp_up_step = DEFAULT_RAMP_UP_STEP;
+		ramp_down_step = DEFAULT_RAMP_DOWN_STEP;
+		max_cpu_load = DEFAULT_MAX_CPU_LOAD;
+		min_cpu_load = DEFAULT_MIN_CPU_LOAD;
+
+		suspended = 0;
+
+		/* Initalize per-cpu data: */
+		for_each_possible_cpu(i) {
+			struct smartass_info_s *this_smartass_data;
+			this_smartass_data = &per_cpu(smartass_info, i);
+			this_smartass_data->enable = 0;
+			this_smartass_data->cur_policy = 0;
+			this_smartass_data->ramp_dir = 0;
+			this_smartass_data->time_in_idle = 0;
+			this_smartass_data->idle_exit_time = 0;
+			this_smartass_data->freq_change_time = 0;
+			this_smartass_data->freq_change_time_in_idle = 0;
+			this_smartass_data->cur_cpu_load = 0;
+			// intialize timer:
+			init_timer_deferrable(&this_smartass_data->timer);
+			this_smartass_data->timer.function = cpufreq_smartass_timer;
+			this_smartass_data->timer.data = i;
+			work_cpumask_test_and_clear(i);
+		}
+
+		spin_lock_init(&cpumask_lock);
+
+		register_power_suspend(&smartass_power_suspend_handler);
+
+		INIT_WORK(&freq_scale_work, cpufreq_smartass_freq_change_time_work);
 
 		this_smartass->cur_policy = new_policy;
 
@@ -900,6 +924,8 @@ static int cpufreq_governor_smartass_h3(struct cpufreq_policy *new_policy,
 
 	case CPUFREQ_GOV_STOP:
 		this_smartass->enable = 0;
+		unregister_power_suspend(&smartass_power_suspend_handler);
+		cancel_work_sync(&freq_scale_work);
 		smp_wmb();
 		del_timer(&this_smartass->timer);
 		flush_work(&freq_scale_work);
@@ -917,64 +943,24 @@ static int cpufreq_governor_smartass_h3(struct cpufreq_policy *new_policy,
 	return 0;
 }
 
+#ifndef CONFIG_CPU_FREQ_DEFAULT_GOV_SMARTASSH3
+static
+#endif
+struct cpufreq_governor cpufreq_gov_smartass_h3 = {
+	.name = "smartassH3",
+	.governor = cpufreq_governor_smartass_h3,
+	.max_transition_latency = 9000000,
+	.owner = THIS_MODULE,
+};
+
 static int __init cpufreq_smartass_init(void)
 {
-	unsigned int i;
-	struct smartass_info_s *this_smartass;
-
-	debug_mask = 0;
-	up_rate_us = DEFAULT_UP_RATE_US;
-	down_rate_us = DEFAULT_DOWN_RATE_US;
-	sleep_ideal_freq = DEFAULT_SLEEP_IDEAL_FREQ;
-	sleep_wakeup_freq = DEFAULT_SLEEP_WAKEUP_FREQ;
-	awake_ideal_freq = DEFAULT_AWAKE_IDEAL_FREQ;
-	sample_rate_jiffies = DEFAULT_SAMPLE_RATE_JIFFIES;
-	ramp_up_step = DEFAULT_RAMP_UP_STEP;
-	ramp_down_step = DEFAULT_RAMP_DOWN_STEP;
-	max_cpu_load = DEFAULT_MAX_CPU_LOAD;
-	min_cpu_load = DEFAULT_MIN_CPU_LOAD;
-
-	spin_lock_init(&cpumask_lock);
-
-	suspended = 0;
-
-	/* Initalize per-cpu data: */
-	for_each_possible_cpu(i) {
-		this_smartass = &per_cpu(smartass_info, i);
-		this_smartass->enable = 0;
-		this_smartass->cur_policy = 0;
-		this_smartass->ramp_dir = 0;
-		this_smartass->time_in_idle = 0;
-		this_smartass->idle_exit_time = 0;
-		this_smartass->freq_change_time = 0;
-		this_smartass->freq_change_time_in_idle = 0;
-		this_smartass->cur_cpu_load = 0;
-		// intialize timer:
-		init_timer_deferrable(&this_smartass->timer);
-		this_smartass->timer.function = cpufreq_smartass_timer;
-		this_smartass->timer.data = i;
-		work_cpumask_test_and_clear(i);
-	}
-
-	// Scale up is high priority
-	up_wq = create_workqueue("ksmartass_up");
-	down_wq = create_workqueue("ksmartass_down");
-	if (!up_wq || !down_wq)
-		return -ENOMEM;
-
-	register_power_suspend(&smartass_power_suspend_handler);
-
-	INIT_WORK(&freq_scale_work, cpufreq_smartass_freq_change_time_work);
-
 	return cpufreq_register_governor(&cpufreq_gov_smartass_h3);
 }
 
 static void __exit cpufreq_smartass_exit(void)
 {
 	cpufreq_unregister_governor(&cpufreq_gov_smartass_h3);
-	unregister_power_suspend(&smartass_power_suspend_handler);
-	destroy_workqueue(up_wq);
-	destroy_workqueue(down_wq);
 }
 
 MODULE_AUTHOR ("Erasmux, moded by H3ROS & C3C0");
