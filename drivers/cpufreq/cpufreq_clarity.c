@@ -42,8 +42,8 @@
 #define DEF_FREQ_MIDDLE				(787200)
 #define DEF_FREQ_MAX_SUSPEND			(787200)
 #define DEF_FREQ_AWAKE				(998400)
-#define DEF_FREQ_STEP_UP			(5)
-#define DEF_FREQ_STEP_DOWN			(5)
+#define DEF_FREQ_INCREASE			(75000)
+#define DEF_FREQ_DECREASE			(50000)
 #define DEF_IGNORE_NICE_LOADS			(0)
 #define DEF_IO_IS_BUSY				(0)
 /* Tunables end */
@@ -71,8 +71,7 @@ struct cpu_dbs_info_s {
 	struct delayed_work work;
 	unsigned int down_skip;
 	unsigned int requested_freq;
-	unsigned int cpu_max_freq;
-	unsigned int cpu_maxcur_freq;
+	unsigned int user_max_freq;
 	int cpu;
 	unsigned int enable:1;
 	/*
@@ -91,16 +90,14 @@ static unsigned int dbs_enable;	/* number of CPUs using this policy */
  */
 static DEFINE_MUTEX(dbs_mutex);
 
-static struct workqueue_struct *dbs_wq;
-
 static struct dbs_tuners {
 	unsigned int sampling_rate;
 	unsigned int up_threshold;
 	unsigned int down_threshold;
 	unsigned int ignore_nice;
 	unsigned int freq_middle;
-	unsigned int freq_step_up;
-	unsigned int freq_step_down;
+	unsigned int freq_increase;
+	unsigned int freq_decrease;
 	unsigned int freq_max_suspend;
 	unsigned int freq_awake;
 	int io_is_busy;
@@ -110,8 +107,8 @@ static struct dbs_tuners {
 	.down_threshold = DEF_FREQUENCY_DOWN_THRESHOLD,
 	.ignore_nice = DEF_IGNORE_NICE_LOADS,
 	.freq_middle = DEF_FREQ_MIDDLE,
-	.freq_step_up = DEF_FREQ_STEP_UP,
-	.freq_step_down = DEF_FREQ_STEP_DOWN,
+	.freq_increase = DEF_FREQ_INCREASE,
+	.freq_decrease = DEF_FREQ_DECREASE,
 	.io_is_busy = DEF_IO_IS_BUSY,
 	.freq_max_suspend = DEF_FREQ_MAX_SUSPEND,
 	.freq_awake = DEF_FREQ_AWAKE,
@@ -195,18 +192,18 @@ static void suspend_resume(bool suspend)
 		cpu_info = &per_cpu(clarity_cpu_dbs_info, cpu);
 		policy = cpufreq_cpu_get(cpu);
 		if (suspend) {
-			cpu_info->cpu_maxcur_freq = policy->max;
+			cpu_info->user_max_freq = policy->user_policy.max;
 			policy->max = dbs_tuners_ins.freq_max_suspend;
-			policy->cpuinfo.max_freq = dbs_tuners_ins.freq_max_suspend;
+			policy->user_policy.max = dbs_tuners_ins.freq_max_suspend;
 			pr_info("clarity governor (suspended): %u %u\n",
-				policy->cpuinfo.max_freq, cpu_info->cpu_max_freq);
+				policy->user_policy.max, policy->max);
 		} else {
 			if (cpu != 0)
 				cpu_info = &per_cpu(clarity_cpu_dbs_info, 0);
-			policy->cpuinfo.max_freq = cpu_info->cpu_max_freq;
-			policy->max =  cpu_info->cpu_maxcur_freq;
+			policy->max = cpu_info->user_max_freq;
+			policy->user_policy.max = cpu_info->user_max_freq;
 			pr_info("clarity governor (resumed): %u %u\n",
-				policy->cpuinfo.max_freq, cpu_info->cpu_max_freq);
+				policy->user_policy.max, policy->max);
 		}
 		cpufreq_update_policy(cpu);
 	}
@@ -214,9 +211,6 @@ static void suspend_resume(bool suspend)
 
 static void clarity_power_suspend(struct power_suspend *handler)
 {
-	if (!dbs_enable)
-		return;
-
 	suspended = true;
 
 	if (dbs_tuners_ins.freq_max_suspend == 0)
@@ -230,9 +224,6 @@ static void clarity_late_resume(struct power_suspend *handler)
 	struct cpu_dbs_info_s *cpu_info;
 	struct cpufreq_policy *policy;
 	unsigned int cpu;
-
-	if (!dbs_enable)
-		return;
 
 	suspended = false;
 
@@ -276,8 +267,8 @@ show_one(up_threshold, up_threshold);
 show_one(down_threshold, down_threshold);
 show_one(ignore_nice_load, ignore_nice);
 show_one(freq_middle, freq_middle);
-show_one(freq_step_up, freq_step_up);
-show_one(freq_step_down, freq_step_down);
+show_one(freq_increase, freq_increase);
+show_one(freq_decrease, freq_decrease);
 show_one(io_is_busy, io_is_busy);
 show_one(freq_max_suspend, freq_max_suspend);
 show_one(freq_awake, freq_awake);
@@ -330,8 +321,7 @@ static void update_sampling_rate(unsigned int new_rate)
 			cancel_delayed_work_sync(&dbs_info->work);
 			mutex_lock(&dbs_info->timer_mutex);
 
-			queue_delayed_work_on(dbs_info->cpu, dbs_wq,
-				&dbs_info->work, usecs_to_jiffies(new_rate));
+			schedule_delayed_work_on(dbs_info->cpu, &dbs_info->work, usecs_to_jiffies(new_rate));
 
 		}
 		mutex_unlock(&dbs_info->timer_mutex);
@@ -419,6 +409,7 @@ static ssize_t store_ignore_nice_load(struct kobject *a, struct attribute *b,
 static ssize_t store_freq_middle(struct kobject *a, struct attribute *b,
 			       const char *buf, size_t count)
 {
+	struct cpufreq_policy *policy;
 	unsigned int input;
 	int ret;
 	ret = sscanf(buf, "%u", &input);
@@ -427,12 +418,16 @@ static ssize_t store_freq_middle(struct kobject *a, struct attribute *b,
 		input > dbs_tuners_ins.freq_max_suspend)
 		return -EINVAL;
 
+	policy = cpufreq_cpu_get(0);
+	if (input > policy->user_policy.max)
+		input = policy->user_policy.max;
+
 	dbs_tuners_ins.freq_middle = input;
 
 	return count;
 }
 
-static ssize_t store_freq_step_up(struct kobject *a, struct attribute *b,
+static ssize_t store_freq_increase(struct kobject *a, struct attribute *b,
 			       const char *buf, size_t count)
 {
 	unsigned int input;
@@ -442,16 +437,13 @@ static ssize_t store_freq_step_up(struct kobject *a, struct attribute *b,
 	if (ret != 1)
 		return -EINVAL;
 
-	if (input > 100)
-		input = 100;
-
-	/* no need to test here if freq_step_up is zero as the user might actually
+	/* no need to test here if freq_increase is zero as the user might actually
 	 * want this, they would be crazy though :) */
-	dbs_tuners_ins.freq_step_up = input;
+	dbs_tuners_ins.freq_increase = input;
 	return count;
 }
 
-static ssize_t store_freq_step_down(struct kobject *a, struct attribute *b,
+static ssize_t store_freq_decrease(struct kobject *a, struct attribute *b,
 			       const char *buf, size_t count)
 {
 	unsigned int input;
@@ -461,12 +453,9 @@ static ssize_t store_freq_step_down(struct kobject *a, struct attribute *b,
 	if (ret != 1)
 		return -EINVAL;
 
-	if (input > 100)
-		input = 100;
-
-	/* no need to test here if freq_step_down is zero as the user might actually
+	/* no need to test here if freq_decrease is zero as the user might actually
 	 * want this, they would be crazy though :) */
-	dbs_tuners_ins.freq_step_down = input;
+	dbs_tuners_ins.freq_decrease = input;
 	return count;
 }
 
@@ -488,6 +477,7 @@ static ssize_t store_io_is_busy(struct kobject *a, struct attribute *b,
 static ssize_t store_freq_max_suspend(struct kobject *a, struct attribute *b,
 			       const char *buf, size_t count)
 {
+	struct cpufreq_policy *policy;
 	unsigned int input;
 	int ret;
 	ret = sscanf(buf, "%u", &input);
@@ -495,6 +485,10 @@ static ssize_t store_freq_max_suspend(struct kobject *a, struct attribute *b,
 	if (ret != 1 ||
 		input < dbs_tuners_ins.freq_middle)
 		return -EINVAL;
+
+	policy = cpufreq_cpu_get(0);
+	if (input > policy->user_policy.max)
+		input = policy->user_policy.max;
 
 	dbs_tuners_ins.freq_max_suspend = input;
 
@@ -521,8 +515,8 @@ define_one_global_rw(up_threshold);
 define_one_global_rw(down_threshold);
 define_one_global_rw(ignore_nice_load);
 define_one_global_rw(freq_middle);
-define_one_global_rw(freq_step_up);
-define_one_global_rw(freq_step_down);
+define_one_global_rw(freq_increase);
+define_one_global_rw(freq_decrease);
 define_one_global_rw(io_is_busy);
 define_one_global_rw(freq_max_suspend);
 define_one_global_rw(freq_awake);
@@ -534,8 +528,8 @@ static struct attribute *dbs_attributes[] = {
 	&down_threshold.attr,
 	&ignore_nice_load.attr,
 	&freq_middle.attr,
-	&freq_step_up.attr,
-	&freq_step_down.attr,
+	&freq_increase.attr,
+	&freq_decrease.attr,
 	&io_is_busy.attr,
 	&freq_max_suspend.attr,
 	&freq_awake.attr,
@@ -553,22 +547,11 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 {
 	unsigned int load = 0;
 	unsigned int max_load = 0;
-	unsigned int freq_target;
 
 	struct cpufreq_policy *policy;
 	unsigned int j;
 
 	policy = this_dbs_info->cur_policy;
-
-	/*
-	 * Every sampling_rate, we check, if current idle time is less
-	 * than 20% (default), then we try to increase frequency
-	 * if current idle time is more than 80%, then we try to decrease frequency
-	 *
-	 * Any frequency increase takes it to the maximum frequency.
-	 * Frequency reduction happens at minimum steps of
-	 * 5% (default) of maximum frequency
-	 */
 
 	/* Get Absolute Load */
 	for_each_cpu(j, policy->cpus) {
@@ -617,7 +600,7 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	/* Check for frequency increase */
 	if (max_load > dbs_tuners_ins.up_threshold)
 	{
-		if (dbs_tuners_ins.freq_step_up == 0)
+		if (dbs_tuners_ins.freq_increase == 0)
 			return;
 
 		this_dbs_info->down_skip = 0;
@@ -626,13 +609,7 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 		if (this_dbs_info->requested_freq == policy->max)
 			return;
 
-		freq_target = (dbs_tuners_ins.freq_step_up * policy->max) / 100;
-
-		/* max freq cannot be less than 100. But who knows.... */
-		if (unlikely(freq_target == 0))
-			freq_target = 5;
-
-		this_dbs_info->requested_freq += freq_target;
+		this_dbs_info->requested_freq += dbs_tuners_ins.freq_increase;
 		if (this_dbs_info->requested_freq > policy->max)
 			this_dbs_info->requested_freq = policy->max;
 
@@ -643,12 +620,10 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	}
 	else if (max_load < dbs_tuners_ins.down_threshold)
 	{
-		if (dbs_tuners_ins.freq_step_down == 0)
+		if (dbs_tuners_ins.freq_decrease == 0)
 			return;
 
-		freq_target = (dbs_tuners_ins.freq_step_down * policy->max) / 100;
-
-		this_dbs_info->requested_freq -= freq_target;
+		this_dbs_info->requested_freq -= dbs_tuners_ins.freq_decrease;
 		if (this_dbs_info->requested_freq < policy->min ||
 			max_load < 10) /* lock to min freq if cpu loads less than 10 */
 			this_dbs_info->requested_freq = policy->min;
@@ -697,7 +672,7 @@ static void do_dbs_timer(struct work_struct *work)
 
 	dbs_check_cpu(dbs_info);
 
-	queue_delayed_work_on(cpu, dbs_wq, &dbs_info->work, delay);
+	schedule_delayed_work_on(cpu, &dbs_info->work, delay);
 	mutex_unlock(&dbs_info->timer_mutex);
 }
 
@@ -711,7 +686,7 @@ static inline void dbs_timer_init(struct cpu_dbs_info_s *dbs_info)
 
 	dbs_info->enable = 1;
 	INIT_DELAYED_WORK_DEFERRABLE(&dbs_info->work, do_dbs_timer);
-	queue_delayed_work_on(dbs_info->cpu, dbs_wq, &dbs_info->work, delay);
+	schedule_delayed_work_on(dbs_info->cpu, &dbs_info->work, delay);
 }
 
 static inline void dbs_timer_exit(struct cpu_dbs_info_s *dbs_info)
@@ -720,7 +695,7 @@ static inline void dbs_timer_exit(struct cpu_dbs_info_s *dbs_info)
 	cancel_delayed_work_sync(&dbs_info->work);
 }
 
-static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
+static int cpufreq_governor_clarity(struct cpufreq_policy *policy,
 				   unsigned int event)
 {
 	struct cpu_dbs_info_s *this_dbs_info;
@@ -737,14 +712,10 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 
 		mutex_lock(&dbs_mutex);
 
-		suspended = false;
-
 		for_each_cpu(j, policy->cpus) {
 			struct cpu_dbs_info_s *j_dbs_info;
 			j_dbs_info = &per_cpu(clarity_cpu_dbs_info, j);
 			j_dbs_info->cur_policy = policy;
-			j_dbs_info->cpu_max_freq = policy->cpuinfo.max_freq;
-			j_dbs_info->cpu_maxcur_freq = policy->max;
 			j_dbs_info->prev_cpu_idle = get_cpu_idle_time(j,
 						&j_dbs_info->prev_cpu_wall);
 			if (dbs_tuners_ins.ignore_nice)
@@ -756,6 +727,7 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 
 		mutex_init(&this_dbs_info->timer_mutex);
 		dbs_enable++;
+
 		/*
 		 * Start the timerschedule work, when this governor
 		 * is used for first time
@@ -794,12 +766,18 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 
 		mutex_unlock(&dbs_mutex);
 
+		suspended = false;
+
+		register_power_suspend(&clarity_power_suspend_handler);
+
 		dbs_timer_init(this_dbs_info);
 
 		break;
 
 	case CPUFREQ_GOV_STOP:
 		dbs_timer_exit(this_dbs_info);
+
+		unregister_power_suspend(&clarity_power_suspend_handler);
 
 		mutex_lock(&dbs_mutex);
 		dbs_enable--;
@@ -841,29 +819,19 @@ static
 #endif
 struct cpufreq_governor cpufreq_gov_clarity = {
 	.name			= "clarity",
-	.governor		= cpufreq_governor_dbs,
+	.governor		= cpufreq_governor_clarity,
 	.max_transition_latency	= TRANSITION_LATENCY_LIMIT,
 	.owner			= THIS_MODULE,
 };
 
 static int __init cpufreq_gov_dbs_init(void)
 {
-	dbs_wq = alloc_workqueue("clarity_dbs_wq", WQ_HIGHPRI, 0);
-	if (!dbs_wq) {
-		printk(KERN_ERR "Failed to create clarity_dbs_wq workqueue\n");
-		return -EFAULT;
-	}
-
-	register_power_suspend(&clarity_power_suspend_handler);
-
 	return cpufreq_register_governor(&cpufreq_gov_clarity);
 }
 
 static void __exit cpufreq_gov_dbs_exit(void)
 {
 	cpufreq_unregister_governor(&cpufreq_gov_clarity);
-	unregister_power_suspend(&clarity_power_suspend_handler);
-	destroy_workqueue(dbs_wq);
 }
 
 MODULE_AUTHOR("Ryan Andri <ryan.omnia@gmail.com>");
