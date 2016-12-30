@@ -221,9 +221,8 @@ static void clarity_power_suspend(struct power_suspend *handler)
 
 static void clarity_late_resume(struct power_suspend *handler)
 {
-	struct cpu_dbs_info_s *cpu_info;
-	struct cpufreq_policy *policy;
-	unsigned int cpu;
+	struct cpu_dbs_info_s *cpu_info = &per_cpu(clarity_cpu_dbs_info, 0);
+	struct cpufreq_policy *policy = cpufreq_cpu_get(0);
 
 	suspended = false;
 
@@ -231,14 +230,10 @@ static void clarity_late_resume(struct power_suspend *handler)
 		return;
 
 	suspend_resume(suspended);
-	for_each_online_cpu(cpu) {
-		cpu_info = &per_cpu(clarity_cpu_dbs_info, cpu);
-		policy = cpufreq_cpu_get(cpu);
-		__cpufreq_driver_target(cpu_info->cur_policy, dbs_tuners_ins.freq_awake,
-				CPUFREQ_RELATION_L);
-		pr_info("clarity governor (awake): %u at awake freq by user %u\n",
-			policy->cur, dbs_tuners_ins.freq_awake);
-	}
+	__cpufreq_driver_target(cpu_info->cur_policy, dbs_tuners_ins.freq_awake,
+			CPUFREQ_RELATION_L);
+	pr_info("clarity governor (awake): %u at awake freq by user %u\n",
+		policy->cur, dbs_tuners_ins.freq_awake);
 }
 
 static struct power_suspend clarity_power_suspend_handler = {
