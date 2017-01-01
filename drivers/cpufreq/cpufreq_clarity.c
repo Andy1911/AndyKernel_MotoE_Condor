@@ -69,6 +69,7 @@ struct cpu_dbs_info_s {
 	cputime64_t prev_cpu_nice;
 	struct cpufreq_policy *cur_policy;
 	struct delayed_work work;
+	struct delayed_work suspend_work;
 	unsigned int down_skip;
 	unsigned int requested_freq;
 	unsigned int user_max_freq;
@@ -184,24 +185,23 @@ static struct notifier_block dbs_cpufreq_notifier_block = {
 
 static void suspend_resume(bool suspend)
 {
-	struct cpu_dbs_info_s *cpu_info;
+	struct cpu_dbs_info_s *dbs_info;
 	struct cpufreq_policy *policy;
 	unsigned int cpu;
 
 	for_each_online_cpu(cpu) {
-		cpu_info = &per_cpu(clarity_cpu_dbs_info, cpu);
+		dbs_info = &per_cpu(clarity_cpu_dbs_info, cpu);
 		policy = cpufreq_cpu_get(cpu);
 		if (suspend) {
-			cpu_info->user_max_freq = policy->user_policy.max;
 			policy->max = dbs_tuners_ins.freq_max_suspend;
 			policy->user_policy.max = dbs_tuners_ins.freq_max_suspend;
 			pr_info("clarity governor (suspended): %u %u\n",
 				policy->user_policy.max, policy->max);
 		} else {
 			if (cpu != 0)
-				cpu_info = &per_cpu(clarity_cpu_dbs_info, 0);
-			policy->max = cpu_info->user_max_freq;
-			policy->user_policy.max = cpu_info->user_max_freq;
+				dbs_info = &per_cpu(clarity_cpu_dbs_info, 0);
+			policy->max = dbs_info->user_max_freq;
+			policy->user_policy.max = dbs_info->user_max_freq;
 			pr_info("clarity governor (resumed): %u %u\n",
 				policy->user_policy.max, policy->max);
 		}
@@ -209,28 +209,40 @@ static void suspend_resume(bool suspend)
 	}
 }
 
+static void clarity_suspend_work(struct work_struct *work)
+{
+	suspend_resume(suspended);
+}
+
 static void clarity_power_suspend(struct power_suspend *handler)
 {
-	suspended = true;
+	struct cpu_dbs_info_s *dbs_info = &per_cpu(clarity_cpu_dbs_info, 0);
+	struct cpufreq_policy *policy = cpufreq_cpu_get(0);
 
 	if (dbs_tuners_ins.freq_max_suspend == 0)
 		return;
 
-	suspend_resume(suspended);
+	suspended = true;
+	dbs_info->user_max_freq = policy->user_policy.max;
+
+	INIT_DELAYED_WORK_DEFERRABLE(&dbs_info->suspend_work,
+				clarity_suspend_work);
+	schedule_delayed_work_on(0, &dbs_info->suspend_work,
+				msecs_to_jiffies(10000));
 }
 
 static void clarity_late_resume(struct power_suspend *handler)
 {
-	struct cpu_dbs_info_s *cpu_info = &per_cpu(clarity_cpu_dbs_info, 0);
+	struct cpu_dbs_info_s *dbs_info = &per_cpu(clarity_cpu_dbs_info, 0);
 	struct cpufreq_policy *policy = cpufreq_cpu_get(0);
-
-	suspended = false;
 
 	if (dbs_tuners_ins.freq_max_suspend == 0)
 		return;
 
+	suspended = false;
+	cancel_delayed_work_sync(&dbs_info->suspend_work);
 	suspend_resume(suspended);
-	__cpufreq_driver_target(cpu_info->cur_policy, dbs_tuners_ins.freq_awake,
+	__cpufreq_driver_target(dbs_info->cur_policy, dbs_tuners_ins.freq_awake,
 			CPUFREQ_RELATION_L);
 	pr_info("clarity governor (awake): %u at awake freq by user %u\n",
 		policy->cur, dbs_tuners_ins.freq_awake);
@@ -493,12 +505,17 @@ static ssize_t store_freq_max_suspend(struct kobject *a, struct attribute *b,
 static ssize_t store_freq_awake(struct kobject *a, struct attribute *b,
 			       const char *buf, size_t count)
 {
+	struct cpufreq_policy *policy;
 	unsigned int input;
 	int ret;
 	ret = sscanf(buf, "%u", &input);
 
 	if (ret != 1)
 		return -EINVAL;
+
+	policy = cpufreq_cpu_get(0);
+	if (input > policy->user_policy.max)
+		input = policy->user_policy.max;
 
 	dbs_tuners_ins.freq_awake = input;
 
