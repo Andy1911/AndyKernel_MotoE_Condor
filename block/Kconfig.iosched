@@ -125,6 +125,16 @@ config IOSCHED_FIFO
 	  Fifo is similar to no-op I/O scheduler and it's a minimal scheduler 
 	  that does basic merging and sorting.
 
+config IOSCHED_MAPLE
+	tristate "Maple I/O scheduler"
+	default y
+	---help---
+	  Maple uses a first come first serve style algorithm with seperated 
+	  read/write handling to allow for read biases. By prioritizing reads, 
+	  simple tasks should improve in performance. Maple also uses hooks for 
+	  the display state driver to increase expirations when power is suspended 
+	  to decrease workload.
+
 choice
 	prompt "Default I/O scheduler"
 	default DEFAULT_CFQ
@@ -170,6 +180,9 @@ choice
 	config DEFAULT_FIFO
 		bool "FIFO" if IOSCHED_FIFO=y
 
+	config DEFAULT_MAPLE
+		bool "Maple" if IOSCHED_MAPLE=y
+
 	config DEFAULT_NOOP
 		bool "No-op"
 
@@ -188,6 +201,7 @@ config DEFAULT_IOSCHED
         default "zen" if DEFAULT_ZEN
 	default "tripndroid" if DEFAULT_TRIPNDROID
 	default "fifo" if DEFAULT_FIFO
+	default "maple" if DEFAULT_MAPLE
 	default "noop" if DEFAULT_NOOP
 	default "fiops" if DEFAULT_FIOPS
 
