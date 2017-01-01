@@ -271,6 +271,8 @@ static void *maple_init_queue(struct request_queue *q)
 	if (!mdata)
 		return NULL;
 
+	spin_lock_irq(q->queue_lock);
+
 	/* Initialize fifo lists */
 	INIT_LIST_HEAD(&mdata->fifo_list[SYNC][READ]);
 	INIT_LIST_HEAD(&mdata->fifo_list[SYNC][WRITE]);
@@ -287,7 +289,6 @@ static void *maple_init_queue(struct request_queue *q)
 	mdata->writes_starved = writes_starved;
 	mdata->sleep_latency_multiple = sleep_latency_multiple;
 
-	spin_lock_irq(q->queue_lock);
 	spin_unlock_irq(q->queue_lock);
 
 	return mdata;
