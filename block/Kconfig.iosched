@@ -112,6 +112,14 @@ config IOSCHED_ZEN
             FCFS, dispatches are back-inserted, deadlines ensure fairness.
             Should work best with devices where there is no travel delay.
 
+config IOSCHED_ZENPLUS
+          tristate "Zenplus I/O scheduler"
+          default y
+          ---help---
+            FCFS, dispatches are back-inserted, async and synchronous for relay
+	    on deadlines to ensure fairness. Should work best with devices where
+	    there is no travel delay such as SSD.
+
 config IOSCHED_TRIPNDROID
 	tristate "Tripndroid"
 	default y
@@ -174,6 +182,9 @@ choice
         config DEFAULT_ZEN
                 bool "ZEN" if IOSCHED_ZEN=y
 
+        config DEFAULT_ZENPLUS
+                bool "ZENPLUS" if IOSCHED_ZENPLUS=y
+
 	config DEFAULT_TRIPNDROID
 		bool "TRIPNDROID" if IOSCHED_TRIPNDROID=y
 
@@ -199,6 +210,7 @@ config DEFAULT_IOSCHED
 	default "bfq" if DEFAULT_BFQ
         default "sio" if DEFAULT_SIO
         default "zen" if DEFAULT_ZEN
+        default "zenplus" if DEFAULT_ZENPLUS
 	default "tripndroid" if DEFAULT_TRIPNDROID
 	default "fifo" if DEFAULT_FIFO
 	default "maple" if DEFAULT_MAPLE
