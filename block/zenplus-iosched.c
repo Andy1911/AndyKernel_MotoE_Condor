@@ -119,27 +119,40 @@ zenplus_choose_expired_request(struct zenplus_data *znp)
 	struct request *async_req_read = zenplus_expired_request(znp, ASYNC, READ);
 	struct request *async_req_write = zenplus_expired_request(znp, ASYNC, WRITE);
 
-	if (sync_req_read && sync_req_write)
+	if (async_req_read && sync_req_read)
 	{
-		if (time_after(rq_fifo_time(sync_req_write),
-			rq_fifo_time(sync_req_read)))
+		if (time_after(rq_fifo_time(async_req_read),
+				rq_fifo_time(sync_req_read)))
 			return sync_req_read;
-	}
-	else if (async_req_read && async_req_write)
-	{
-		if (time_after(rq_fifo_time(async_req_write),
-			rq_fifo_time(async_req_read)))
+		else if (time_after(rq_fifo_time(sync_req_read),
+				rq_fifo_time(async_req_read)))
 			return async_req_read;
 	}
-
-	if (sync_req_read)
+	else if (async_req_write && sync_req_write)
+	{
+		if (time_after(rq_fifo_time(async_req_write),
+				rq_fifo_time(sync_req_write)))
+			return sync_req_write;
+		else if (time_after(rq_fifo_time(sync_req_write),
+				rq_fifo_time(async_req_write)))
+			return async_req_write;
+	}
+	else if (sync_req_read)
+	{
 		return sync_req_read;
+	}
 	else if (sync_req_write)
+	{
 		return sync_req_write;
+	}
 	else if (async_req_read)
+	{
 		return async_req_read;
+	}
 	else if (async_req_write)
+	{
 		return async_req_write;
+	}
 
 	return NULL;
 }
