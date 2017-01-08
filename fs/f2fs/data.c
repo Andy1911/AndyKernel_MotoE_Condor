@@ -1700,7 +1700,7 @@ static int f2fs_write_end(struct file *file,
 }
 
 static ssize_t check_direct_IO(struct inode *inode, int rw,
-		const struct iovec *iov, loff_t offset, unsigned long nr_segs)
+		struct iov_iter *iter, loff_t offset)
 {
 	unsigned blocksize_mask = inode->i_sb->s_blocksize - 1;
 	int seg, i;
@@ -1708,12 +1708,13 @@ static ssize_t check_direct_IO(struct inode *inode, int rw,
 	unsigned long addr;
 	ssize_t retval = -EINVAL;
 	loff_t end = offset;
+	const struct iovec *iov = iov_iter_iovec(iter);
 
 	if (offset & blocksize_mask)
 		return -EINVAL;
 
 	/* Check the memory alignment.  Blocks cannot straddle pages */
-	for (seg = 0; seg < nr_segs; seg++) {
+	for (seg = 0; seg < iter->nr_segs; seg++) {
 		addr = (unsigned long)iov[seg].iov_base;
 		size = iov[seg].iov_len;
 		end += size;
@@ -1729,7 +1730,7 @@ static ssize_t check_direct_IO(struct inode *inode, int rw,
 		 * iovec, if so return EINVAL, otherwise we'll get csum errors
 		 * when reading back.
 		 */
-		for (i = seg + 1; i < nr_segs; i++) {
+		for (i = seg + 1; i < iter->nr_segs; i++) {
 			if (iov[seg].iov_base == iov[i].iov_base)
 				goto out;
 		}
@@ -1740,15 +1741,14 @@ out:
 }
 
 static ssize_t f2fs_direct_IO(int rw, struct kiocb *iocb,
-				const struct iovec *iov, loff_t offset,
-				unsigned long nr_segs)
+				struct iov_iter *iter, loff_t offset)
 {
 	struct address_space *mapping = iocb->ki_filp->f_mapping;
 	struct inode *inode = mapping->host;
-	size_t count = iov_length(iov, nr_segs);
+	size_t count = iov_iter_count(iter);
 	int err;
 
-	err = check_direct_IO(inode, rw, iov, offset, nr_segs);
+	err = check_direct_IO(inode, rw, iter, offset);
 	if (err)
 		return err;
 
@@ -1760,8 +1760,7 @@ static ssize_t f2fs_direct_IO(int rw, struct kiocb *iocb,
 	trace_f2fs_direct_IO_enter(inode, offset, count, rw);
 
 	down_read(&F2FS_I(inode)->dio_rwsem[rw]);
-	err = blockdev_direct_IO(rw, iocb, inode, iov, offset, nr_segs,
-							get_data_block_dio);
+	err = blockdev_direct_IO(rw, iocb, inode, iter, offset, get_data_block_dio);
 	up_read(&F2FS_I(inode)->dio_rwsem[rw]);
 	if (err < 0 && (rw & WRITE)) {
 		if (err > 0)
