@@ -143,6 +143,12 @@ config IOSCHED_MAPLE
 	  the display state driver to increase expirations when power is suspended 
 	  to decrease workload.
 
+config IOSCHED_SIDE
+	tristate "SIDE I/O scheduler"
+	default y
+	---help---
+	  The simple version of deadline I/O Scheduler.
+
 choice
 	prompt "Default I/O scheduler"
 	default DEFAULT_CFQ
@@ -200,6 +206,9 @@ choice
 	config DEFAULT_FIOPS
 		bool "FIOPS" if IOSCHED_FIOPS=y
 
+	config DEFAULT_SIDE
+		bool "SIDE" if IOSCHED_SIDE=y
+
 endchoice
 
 config DEFAULT_IOSCHED
@@ -216,6 +225,7 @@ config DEFAULT_IOSCHED
 	default "maple" if DEFAULT_MAPLE
 	default "noop" if DEFAULT_NOOP
 	default "fiops" if DEFAULT_FIOPS
+	default "side" if DEFAULT_SIDE
 
 endmenu
 
