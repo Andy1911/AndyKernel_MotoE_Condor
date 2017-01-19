@@ -37,7 +37,6 @@
 #include <linux/moduleparam.h>
 #include <linux/errno.h>
 #include <linux/err.h>
-#include <linux/vermagic.h>
 #include <linux/notifier.h>
 #include <linux/sched.h>
 #include <linux/stop_machine.h>
@@ -58,8 +57,6 @@
 #include <linux/jump_label.h>
 #include <linux/pfn.h>
 #include <linux/bsearch.h>
-
-#include "module-whitelist.h"
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/module.h>
@@ -889,15 +886,11 @@ void symbol_put_addr(void *addr)
 	if (core_kernel_text(a))
 		return;
 
-	/*
-	 * Even though we hold a reference on the module; we still need to
-	 * disable preemption in order to safely traverse the data structure.
-	 */
-	preempt_disable();
+	/* module_text_address is safe here: we're supposed to have reference
+	 * to module from symbol_get, so it can't go away. */
 	modaddr = __module_text_address(a);
 	BUG_ON(!modaddr);
 	module_put(modaddr);
-	preempt_enable();
 }
 EXPORT_SYMBOL_GPL(symbol_put_addr);
 
@@ -1080,7 +1073,6 @@ static struct module_attribute *modinfo_attrs[] = {
 	NULL,
 };
 
-static const char vermagic[] = VERMAGIC_STRING;
 
 static int try_to_force_load(struct module *mod, const char *reason)
 {
@@ -2279,17 +2271,12 @@ static void layout_symtab(struct module *mod, struct load_info *info)
 	src = (void *)info->hdr + symsect->sh_offset;
 	nsrc = symsect->sh_size / sizeof(*src);
 
-	/* strtab always starts with a nul, so offset 0 is the empty string. */
-	strtab_size = 1;
-
 	/* Compute total space required for the core symbols' strtab. */
-	for (ndst = i = 0; i < nsrc; i++) {
-		if (i == 0 ||
-		    is_core_symbol(src+i, info->sechdrs, info->hdr->e_shnum)) {
-			strtab_size += strlen(&info->strtab[src[i].st_name])+1;
+	for (ndst = i = strtab_size = 1; i < nsrc; ++i, ++src)
+		if (is_core_symbol(src, info->sechdrs, info->hdr->e_shnum)) {
+			strtab_size += strlen(&info->strtab[src->st_name]) + 1;
 			ndst++;
 		}
-	}
 
 	/* Append room for core symbols at end of core part. */
 	info->symoffs = ALIGN(mod->core_size, symsect->sh_addralign ?: 1);
@@ -2323,15 +2310,15 @@ static void add_kallsyms(struct module *mod, const struct load_info *info)
 	mod->core_symtab = dst = mod->module_core + info->symoffs;
 	mod->core_strtab = s = mod->module_core + info->stroffs;
 	src = mod->symtab;
+	*dst = *src;
 	*s++ = 0;
-	for (ndst = i = 0; i < mod->num_symtab; i++) {
-		if (i == 0 ||
-		    is_core_symbol(src+i, info->sechdrs, info->hdr->e_shnum)) {
-			dst[ndst] = src[i];
-			dst[ndst++].st_name = s - mod->core_strtab;
-			s += strlcpy(s, &mod->strtab[src[i].st_name],
-				     KSYM_NAME_LEN) + 1;
-		}
+	for (ndst = i = 1; i < mod->num_symtab; ++i, ++src) {
+		if (!is_core_symbol(src, info->sechdrs, info->hdr->e_shnum))
+			continue;
+
+		dst[ndst] = *src;
+		dst[ndst++].st_name = s - mod->core_strtab;
+		s += strlcpy(s, &mod->strtab[src->st_name], KSYM_NAME_LEN) + 1;
 	}
 	mod->core_num_syms = ndst;
 }
@@ -2551,37 +2538,7 @@ static struct module *setup_load_info(struct load_info *info)
 	return mod;
 }
 
-static int check_modinfo(struct module *mod, struct load_info *info)
-{
-	const char *modmagic = get_modinfo(info, "vermagic");
-	int err;
 
-	/* This is allowed: modprobe --force will invalidate it. */
-	if (!modmagic) {
-		err = try_to_force_load(mod, "bad vermagic");
-		if (err)
-			return err;
-	} else if (!same_magic(modmagic, vermagic, info->index.vers)) {
-		printk(KERN_ERR "%s: version magic '%s' should be '%s'\n",
-		       mod->name, modmagic, vermagic);
-		return -ENOEXEC;
-	}
-
-	if (!get_modinfo(info, "intree"))
-		add_taint_module(mod, TAINT_OOT_MODULE);
-
-	if (get_modinfo(info, "staging")) {
-		add_taint_module(mod, TAINT_CRAP);
-		printk(KERN_WARNING "%s: module is from the staging directory,"
-		       " the quality is unknown, you have been warned.\n",
-		       mod->name);
-	}
-
-	/* Set up license info based on the info section */
-	set_license(mod, get_modinfo(info, "license"));
-
-	return 0;
-}
 
 static void find_module_sections(struct module *mod, struct load_info *info)
 {
@@ -2740,10 +2697,6 @@ static int check_module_license_and_versions(struct module *mod)
 	if (strcmp(mod->name, "driverloader") == 0)
 		add_taint_module(mod, TAINT_PROPRIETARY_MODULE);
 
-	/* lve claims to be GPL but upstream won't provide source */
-	if (strcmp(mod->name, "lve") == 0)
-		add_taint_module(mod, TAINT_PROPRIETARY_MODULE);
-
 #ifdef CONFIG_MODVERSIONS
 	if ((mod->num_syms && !mod->crcs)
 	    || (mod->num_gpl_syms && !mod->gpl_crcs)
@@ -2802,7 +2755,6 @@ static struct module *layout_and_allocate(struct load_info *info)
 	if (IS_ERR(mod))
 		return mod;
 
-	err = check_modinfo(mod, info);
 	if (err)
 		return ERR_PTR(err);
 
@@ -2875,54 +2827,6 @@ static int post_relocation(struct module *mod, const struct load_info *info)
 	return module_finalize(info->hdr, info->sechdrs, mod);
 }
 
-#ifdef CONFIG_MODULE_EXTRA_COPY
-/* Make an extra copy of the module. */
-static int make_extra_copy(Elf_Ehdr *elf_hdr, unsigned long elf_len,
-			void **extra_copy)
-{
-	void *dest = *extra_copy = vmalloc(elf_len);
-	if (dest == NULL)
-		return -ENOMEM;
-	memcpy(dest, elf_hdr, elf_len);
-	return 0;
-}
-
-/* Keep the linked copy as well as the raw copy, in case the
- * module wants to inspect both. */
-static int keep_extra_copy_info(struct module *mod, void *extra_copy,
-			Elf_Ehdr *elf_hdr, unsigned long elf_len)
-{
-	mod->raw_binary_ptr = extra_copy;
-	mod->raw_binary_size = elf_len;
-	mod->linked_binary_ptr = elf_hdr;
-	mod->linked_binary_size = elf_len;
-	return 1;
-}
-
-/* Release module extra copy information. */
-static void cleanup_extra_copy_info(struct module *mod)
-{
-	vfree(mod->raw_binary_ptr);
-	vfree(mod->linked_binary_ptr);
-	mod->raw_binary_ptr = mod->linked_binary_ptr = NULL;
-	mod->raw_binary_size = mod->linked_binary_size = 0;
-}
-#else	/* !CONFIG_MODULE_EXTRA_COPY */
-static inline int make_extra_copy(Elf_Ehdr *elf_hdr, unsigned long elf_len,
-					void **extra_copy)
-{
-	*extra_copy = NULL;
-	return 0;
-}
-static inline int keep_extra_copy_info(struct module *mod, void *extra_copy,
-					Elf_Ehdr *elf_hdr,
-					unsigned long elf_len)
-{
-	return 0;
-}
-static inline void cleanup_extra_copy_info(struct module *mod) { }
-#endif	/* CONFIG_MODULE_EXTRA_COPY */
-
 /* Allocate and load the module: note that size of section 0 is always
    zero, and we rely on this for optional sections. */
 static struct module *load_module(void __user *umod,
@@ -2932,7 +2836,6 @@ static struct module *load_module(void __user *umod,
 	struct load_info info = { NULL, };
 	struct module *mod;
 	long err;
-	void *extra_copy = NULL;
 
 	pr_debug("load_module: umod=%p, len=%lu, uargs=%p\n",
 	       umod, len, uargs);
@@ -2942,21 +2845,11 @@ static struct module *load_module(void __user *umod,
 	if (err)
 		return ERR_PTR(err);
 
-	/* check module hash */
-	err = check_module_hash(info.hdr, info.len);
-	if (err)
-		goto free_copy;
-
-	/* Make extra copy of the module, if needed. */
-	err = make_extra_copy(info.hdr, info.len, &extra_copy);
-	if (err)
-		goto free_copy;
-
 	/* Figure out module layout, and allocate all the memory. */
 	mod = layout_and_allocate(&info);
 	if (IS_ERR(mod)) {
 		err = PTR_ERR(mod);
-		goto free_extra_copy;
+		goto free_copy;
 	}
 
 	/* Now module is in final location, initialize linked lists, etc. */
@@ -3016,9 +2909,6 @@ static struct module *load_module(void __user *umod,
 	/* This has to be done once we're sure module name is unique. */
 	dynamic_debug_setup(info.debug, info.num_debug);
 
-	/* Ftrace init must be called in the MODULE_STATE_UNFORMED state */
-	ftrace_module_init(mod);
-
 	/* Find duplicate symbols */
 	err = verify_export_symbols(mod);
 	if (err < 0)
@@ -3039,11 +2929,8 @@ static struct module *load_module(void __user *umod,
 	if (err < 0)
 		goto unlink;
 
-	/* Keep extra copy information, if needed. */
-	if (!keep_extra_copy_info(mod, extra_copy, info.hdr, info.len)) {
-		/* Get rid of temporary copy. */
-		free_copy(&info);
-	}
+	/* Get rid of temporary copy. */
+	free_copy(&info);
 
 	/* Done! */
 	trace_module_load(mod);
@@ -3069,8 +2956,6 @@ static struct module *load_module(void __user *umod,
 	module_unload_free(mod);
  free_module:
 	module_deallocate(mod, &info);
- free_extra_copy:
-	vfree(extra_copy);
  free_copy:
 	free_copy(&info);
 	return ERR_PTR(err);
@@ -3122,7 +3007,6 @@ SYSCALL_DEFINE3(init_module, void __user *, umod,
 	/* Start the module */
 	if (mod->init != NULL)
 		ret = do_one_initcall(mod->init);
-	cleanup_extra_copy_info(mod);
 	if (ret < 0) {
 		/* Init routine failed: abort.  Try to protect us from
                    buggy refcounters. */

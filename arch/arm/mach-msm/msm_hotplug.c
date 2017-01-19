@@ -190,7 +190,6 @@ static unsigned int load_at_max_freq(void)
 
 	for_each_online_cpu(cpu) {
 		pcpu = &per_cpu(cpuload, cpu);
-		update_average_load(cpu);
 		total_load += pcpu->avg_load_maxfreq;
 		pcpu->cur_load_maxfreq = pcpu->avg_load_maxfreq;
 		max_load = max(max_load, pcpu->avg_load_maxfreq);
@@ -330,12 +329,6 @@ static void cpu_down_work(struct work_struct *work)
 		if (cpu == 0)
 			continue;
 		lowest_cpu = get_lowest_load_cpu();
-		if (lowest_cpu > 0 && lowest_cpu <= stats.total_cpus) {
-			if (check_down_lock(lowest_cpu) ||
-			    check_cpuboost(lowest_cpu))
-				break;
-			cpu_down(lowest_cpu);
-		}
 		if (target >= num_online_cpus())
 			break;
 	}
@@ -509,10 +502,8 @@ static void __ref msm_hotplug_resume(void)
 		if (hotplug.max_cpus_online_susp <= 1) {
 			required_reschedule = 1;
 			INIT_DELAYED_WORK(&hotplug_work, msm_hotplug_work);
-		}
 	}
 
-	if (wakeup_boost || required_wakeup) {
 		/* Fire up all CPUs */
 		for_each_cpu_not(cpu, cpu_online_mask) {
 			if (cpu == 0)
