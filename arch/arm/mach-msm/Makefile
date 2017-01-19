@@ -439,3 +439,4 @@ obj-$(CONFIG_MMI_MSM_CLOCK) += mmi-clock.o
 obj-$(CONFIG_MMI_UNIT_INFO) += mmi-lpm.o
 
 obj-$(CONFIG_MSM_LIMITER) += msm_limiter.o
+obj-$(CONFIG_MSM_HOTPLUG) += msm_hotplug.o
